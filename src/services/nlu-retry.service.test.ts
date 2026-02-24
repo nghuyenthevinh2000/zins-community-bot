@@ -19,12 +19,16 @@ describe('NLURetryService (Story 4.5)', () => {
 
   beforeEach(() => {
     dbServiceMock = {
-      getPendingNLURequestsForRetry: mock(() => Promise.resolve([])),
-      getAvailabilityResponse: mock(() => Promise.resolve({})),
-      updateAvailabilityResponse: mock(() => Promise.resolve({})),
-      markNLURequestCompleted: mock(() => Promise.resolve({})),
-      markNLURequestFailed: mock(() => Promise.resolve({})),
-      updateNLURequestRetry: mock(() => Promise.resolve({})),
+      nluQueue: {
+        findPendingForRetry: mock(() => Promise.resolve([])),
+        markCompleted: mock(() => Promise.resolve({})),
+        markFailed: mock(() => Promise.resolve({})),
+        updateRetry: mock(() => Promise.resolve({})),
+      } as any,
+      responses: {
+        findByRoundAndUser: mock(() => Promise.resolve({})),
+        update: mock(() => Promise.resolve({})),
+      } as any
     };
 
     telegramMock = {
@@ -45,8 +49,8 @@ describe('NLURetryService (Story 4.5)', () => {
       }
     ];
 
-    dbServiceMock.getPendingNLURequestsForRetry.mockReturnValue(Promise.resolve(pendingRequests));
-    dbServiceMock.getAvailabilityResponse.mockReturnValue(Promise.resolve({}));
+    dbServiceMock.nluQueue.findPendingForRetry.mockReturnValue(Promise.resolve(pendingRequests));
+    dbServiceMock.responses.findByRoundAndUser.mockReturnValue(Promise.resolve({}));
 
     // Mock nluService.parseAvailability
     const nluResult = {
@@ -58,8 +62,8 @@ describe('NLURetryService (Story 4.5)', () => {
 
     await (retryService as any).processPendingRequests();
 
-    expect(dbServiceMock.updateAvailabilityResponse).toHaveBeenCalled();
-    expect(dbServiceMock.markNLURequestCompleted).toHaveBeenCalledWith('req-1');
+    expect(dbServiceMock.responses.update).toHaveBeenCalled();
+    expect(dbServiceMock.nluQueue.markCompleted).toHaveBeenCalledWith('req-1');
     expect(telegramMock.sendMessage).toHaveBeenCalledWith(
       'user-1',
       expect.stringContaining('Your availability has been processed'),
@@ -78,15 +82,15 @@ describe('NLURetryService (Story 4.5)', () => {
       }
     ];
 
-    dbServiceMock.getPendingNLURequestsForRetry.mockReturnValue(Promise.resolve(pendingRequests));
+    dbServiceMock.nluQueue.findPendingForRetry.mockReturnValue(Promise.resolve(pendingRequests));
 
     // Mock nluService.parseAvailability to throw
     (retryService as any).nluService.parseAvailability = mock(() => Promise.reject(new Error('API Down')));
 
     await (retryService as any).processPendingRequests();
 
-    expect(dbServiceMock.updateNLURequestRetry).toHaveBeenCalledWith('req-2', 1, 'API Down');
-    expect(dbServiceMock.markNLURequestCompleted).not.toHaveBeenCalled();
+    expect(dbServiceMock.nluQueue.updateRetry).toHaveBeenCalledWith('req-2', 1, 'API Down');
+    expect(dbServiceMock.nluQueue.markCompleted).not.toHaveBeenCalled();
     expect(telegramMock.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -101,14 +105,14 @@ describe('NLURetryService (Story 4.5)', () => {
       }
     ];
 
-    dbServiceMock.getPendingNLURequestsForRetry.mockReturnValue(Promise.resolve(pendingRequests));
+    dbServiceMock.nluQueue.findPendingForRetry.mockReturnValue(Promise.resolve(pendingRequests));
 
     // Mock nluService.parseAvailability to return failure
     (retryService as any).nluService.parseAvailability = mock(() => Promise.resolve({ success: false, error: 'Still failing' }));
 
     await (retryService as any).processPendingRequests();
 
-    expect(dbServiceMock.markNLURequestFailed).toHaveBeenCalledWith('req-3', 'Still failing');
-    expect(dbServiceMock.updateNLURequestRetry).not.toHaveBeenCalled();
+    expect(dbServiceMock.nluQueue.markFailed).toHaveBeenCalledWith('req-3', 'Still failing');
+    expect(dbServiceMock.nluQueue.updateRetry).not.toHaveBeenCalled();
   });
 });

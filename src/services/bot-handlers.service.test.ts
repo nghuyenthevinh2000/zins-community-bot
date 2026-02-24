@@ -188,12 +188,12 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
 
   test('should parse topic without timeframe', () => {
     const parsed = (handlers as any).parseScheduleCommand('/schedule "Quick sync"');
-    expect(parsed).toEqual({ topic: 'Quick sync', timeframe: 'the upcoming days' });
+    expect(parsed).toEqual({ topic: 'Quick sync', timeframe: 'TBD' });
   });
 
   test('should handle unquoted topic', () => {
     const parsed = (handlers as any).parseScheduleCommand('/schedule standup');
-    expect(parsed).toEqual({ topic: 'standup', timeframe: 'the upcoming days' });
+    expect(parsed).toEqual({ topic: 'standup', timeframe: 'TBD' });
   });
 });
 
@@ -310,7 +310,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
     );
 
     expect(ctxMock.reply).toHaveBeenCalledWith(
-      expect.stringContaining('I understood:'),
+      expect.stringContaining('I understood using basic parsing'),
       expect.any(Object)
     );
   });
