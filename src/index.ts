@@ -1,6 +1,14 @@
 import { Telegraf } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
-import { DatabaseService } from './services/database.service';
+import {
+  GroupRepository,
+  MemberRepository,
+  RoundRepository,
+  ResponseRepository,
+  NLUQueueRepository,
+  NudgeRepository,
+  getPrismaClient
+} from './db';
 import { BotHandlers } from './services/bot-handlers.service';
 import { NLURetryService } from './services/nlu-retry.service';
 import { NudgeSchedulerService } from './services/nudge-scheduler.service';
@@ -11,15 +19,25 @@ if (!token) {
 }
 
 const bot = new Telegraf(token || 'dummy_token');
-const prisma = new PrismaClient();
-const dbService = new DatabaseService(prisma);
-const handlers = new BotHandlers(dbService);
+const prisma = getPrismaClient();
+
+// Initialize repositories
+const repositories = {
+  groups: new GroupRepository(),
+  members: new MemberRepository(),
+  rounds: new RoundRepository(),
+  responses: new ResponseRepository(),
+  nluQueue: new NLUQueueRepository(),
+  nudges: new NudgeRepository()
+};
+
+const handlers = new BotHandlers(repositories);
 
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
-const retryService = new NLURetryService(dbService, bot.telegram);
+const retryService = new NLURetryService(repositories, bot.telegram);
 
 // Initialize Nudge scheduler service (Story 5.2)
-const nudgeScheduler = new NudgeSchedulerService(dbService, bot);
+const nudgeScheduler = new NudgeSchedulerService(repositories, bot);
 
 // Bot command handlers
 bot.use(async (ctx, next) => {

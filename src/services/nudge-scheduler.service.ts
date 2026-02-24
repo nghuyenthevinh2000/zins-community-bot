@@ -1,5 +1,13 @@
-import { DatabaseService } from './database.service';
+import { RoundRepository, NudgeRepository, GroupRepository, ResponseRepository, MemberRepository } from '../db';
 import { NudgeService } from './nudge.service';
+
+export interface NudgeSchedulerRepositories {
+  rounds: RoundRepository;
+  nudges: NudgeRepository;
+  groups: GroupRepository;
+  responses: ResponseRepository;
+  members: MemberRepository;
+}
 
 export class NudgeSchedulerService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -7,10 +15,10 @@ export class NudgeSchedulerService {
   private bot: any;
 
   constructor(
-    private db: DatabaseService,
+    private repos: NudgeSchedulerRepositories,
     bot: any
   ) {
-    this.nudgeService = new NudgeService(db);
+    this.nudgeService = new NudgeService(repos);
     this.bot = bot;
   }
 
@@ -47,10 +55,7 @@ export class NudgeSchedulerService {
   private async processNudges(): Promise<void> {
     try {
       // Find all active scheduling rounds
-      const activeRounds = await this.db.getPrisma().schedulingRound.findMany({
-        where: { status: 'active' },
-        include: { group: true }
-      });
+      const activeRounds = await this.repos.rounds.findAllActive();
 
       if (activeRounds.length === 0) {
         return;

@@ -1,5 +1,10 @@
-import { DatabaseService } from './database.service';
+import { ResponseRepository, NLUQueueRepository } from '../db';
 import { OpenCodeNLUService } from './opencode-nlu.service';
+
+export interface NLURetryRepositories {
+  responses: ResponseRepository;
+  nluQueue: NLUQueueRepository;
+}
 
 export class NLURetryService {
   private nluService: OpenCodeNLUService;
@@ -7,7 +12,7 @@ export class NLURetryService {
   private retryInterval: NodeJS.Timeout | null = null;
 
   constructor(
-    private db: DatabaseService,
+    private repos: NLURetryRepositories,
     private telegram: any
   ) {
     this.nluService = new OpenCodeNLUService();
@@ -39,7 +44,7 @@ export class NLURetryService {
 
   private async processPendingRequests(): Promise<void> {
     try {
-      const pendingRequests = await this.db.getPendingNLURequestsForRetry();
+      const pendingRequests = await this.repos.nluQueue.findPendingForRetry();
       
       if (pendingRequests.length === 0) return;
       
@@ -76,9 +81,9 @@ export class NLURetryService {
         };
         
         // Update the existing availability response
-        const existingResponse = await this.db.getAvailabilityResponse(roundId, userId);
+        const existingResponse = await this.repos.responses.findByRoundAndUser(roundId, userId);
         if (existingResponse) {
-          await this.db.updateAvailabilityResponse(
+          await this.repos.responses.update(
             roundId,
             userId,
             rawResponse,
@@ -87,7 +92,7 @@ export class NLURetryService {
         }
         
         // Mark the pending request as completed
-        await this.db.markNLURequestCompleted(id);
+        await this.repos.nluQueue.markCompleted(id);
         
         // Notify user of successful processing
         await this.notifyUserOfSuccess(userId, nluResult.parsed);
@@ -99,11 +104,11 @@ export class NLURetryService {
         
         if (newRetryCount >= 5) {
           // Max retries reached
-          await this.db.markNLURequestFailed(id, nluResult.error || 'Max retries reached');
+          await this.repos.nluQueue.markFailed(id, nluResult.error || 'Max retries reached');
           console.log(`Max retries reached for user ${userId}`);
         } else {
           // Schedule next retry
-          await this.db.updateNLURequestRetry(
+          await this.repos.nluQueue.updateRetry(
             id,
             newRetryCount,
             nluResult.error || 'Parse unsuccessful'
@@ -117,10 +122,10 @@ export class NLURetryService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
       if (newRetryCount >= 5) {
-        await this.db.markNLURequestFailed(id, errorMessage);
+        await this.repos.nluQueue.markFailed(id, errorMessage);
         console.log(`Max retries reached for user ${userId} with error: ${errorMessage}`);
       } else {
-        await this.db.updateNLURequestRetry(id, newRetryCount, errorMessage);
+        await this.repos.nluQueue.updateRetry(id, newRetryCount, errorMessage);
         console.log(`API still unavailable, scheduled retry ${newRetryCount} for user ${userId}`);
       }
     }

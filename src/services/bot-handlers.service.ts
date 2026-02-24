@@ -1,11 +1,27 @@
 import { Context } from 'telegraf';
-import { DatabaseService } from './database.service';
 import { OpenCodeNLUService } from './opencode-nlu.service';
+import {
+  GroupRepository,
+  MemberRepository,
+  RoundRepository,
+  ResponseRepository,
+  NLUQueueRepository,
+  NudgeRepository
+} from '../db';
+
+export interface Repositories {
+  groups: GroupRepository;
+  members: MemberRepository;
+  rounds: RoundRepository;
+  responses: ResponseRepository;
+  nluQueue: NLUQueueRepository;
+  nudges: NudgeRepository;
+}
 
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
 
-  constructor(private db: DatabaseService, nluService?: OpenCodeNLUService) {
+  constructor(private repos: Repositories, nluService?: OpenCodeNLUService) {
     this.nluService = nluService || new OpenCodeNLUService();
   }
 
@@ -19,11 +35,13 @@ export class BotHandlers {
 
       if (payload && payload.startsWith('optin_')) {
         const telegramGroupId = payload.replace('optin_', '');
-        const group = await this.db.getGroupByTelegramId(telegramGroupId);
+        const group = await this.repos.groups.findByTelegramId(telegramGroupId);
 
         if (group) {
-          await this.db.optInMember(user.id.toString(), group.id);
-          await ctx.reply(`✅ Success! You have been opted-in to scheduling for the group: **${group.name}**.\n\nYou will now receive DMs when a new scheduling round starts.`);
+          await this.repos.members.optIn(user.id.toString(), group.id);
+          await ctx.reply(`✅ Success! You have been opted-in to scheduling for the group: **${group.name}**.
+
+You will now receive DMs when a new scheduling round starts.`);
           return;
         } else {
           await ctx.reply('❌ Sorry, I couldn\'t find that group. Make sure I\'ve been added to the group and /start has been used there.');
@@ -34,7 +52,7 @@ export class BotHandlers {
       await ctx.reply('Welcome! I\'m the Zins Community Bot. I help coordinate group schedules.\n\nTo use me:\n1. Add me to a Telegram group\n2. Use /start in that group\n3. Click the opt-in link I provide');
     } else {
       // Group chat - register the group
-      const group = await this.db.findOrCreateGroup(
+      const group = await this.repos.groups.findOrCreate(
         chat.id.toString(),
         chat.title || 'Unknown Group'
       );
@@ -63,25 +81,25 @@ export class BotHandlers {
       return;
     }
 
-    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    const group = await this.repos.groups.findByTelegramId(chat.id.toString());
     if (!group) {
       await ctx.reply('This group is not registered. Use /start to register it.');
       return;
     }
 
-    const status = await this.db.getActiveRoundStatus(group.id);
+    const { hasActiveRound, round } = await this.repos.rounds.getActiveStatus(group.id);
+    const optedInCount = await this.repos.members.countOptedInByGroup(group.id);
 
-    if (!status.hasActiveRound) {
+    if (!hasActiveRound) {
       await ctx.reply('No active scheduling round in this group.');
       return;
     }
 
-    const round = status.round!;
     await ctx.reply(
       `📅 Active Scheduling Round\n\n` +
-      `Topic: ${round.topic}\n` +
-      `Started: ${round.createdAt.toLocaleDateString()}\n` +
-      `Opted-in members: ${status.optedInCount}`
+      `Topic: ${round!.topic}\n` +
+      `Started: ${round!.createdAt.toLocaleDateString()}\n` +
+      `Opted-in members: ${optedInCount}`
     );
   }
 
@@ -106,12 +124,12 @@ export class BotHandlers {
     // In a group chat
     if (!chat) return;
 
-    const group = await this.db.findOrCreateGroup(
+    const group = await this.repos.groups.findOrCreate(
       chat.id.toString(),
       chat.title || 'Unknown Group'
     );
 
-    const member = await this.db.optInMember(user.id.toString(), group.id);
+    const member = await this.repos.members.optIn(user.id.toString(), group.id);
 
     await ctx.reply(
       `✅ @${user.username || user.first_name} has opted in!\n` +
@@ -133,14 +151,14 @@ export class BotHandlers {
       return;
     }
 
-    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    const group = await this.repos.groups.findByTelegramId(chat.id.toString());
     if (!group) {
       await ctx.reply('This group is not registered. Use /start to register it.');
       return;
     }
 
     // Check if user is opted-in
-    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
+    const isOptedIn = await this.repos.members.isOptedIn(user.id.toString(), group.id);
     if (!isOptedIn) {
       await ctx.reply(
         `❌ @${user.username || user.first_name}, you must opt-in first before starting a scheduling round.\n` +
@@ -150,7 +168,7 @@ export class BotHandlers {
     }
 
     // Check if there's already an active round
-    const activeRound = await this.db.getActiveRoundByGroup(group.id);
+    const activeRound = await this.repos.rounds.findActiveByGroup(group.id);
     if (activeRound) {
       await ctx.reply(
         `⚠️ There's already an active scheduling round:\n` +
@@ -174,7 +192,7 @@ export class BotHandlers {
     }
 
     // Create the scheduling round
-    const round = await this.db.createSchedulingRound(group.id, parsed.topic, parsed.timeframe);
+    const round = await this.repos.rounds.create(group.id, parsed.topic, parsed.timeframe);
 
     await ctx.reply(
       `✅ **Scheduling Round Started!**\n\n` +
@@ -193,7 +211,7 @@ export class BotHandlers {
     topic: string,
     timeframe: string
   ): Promise<void> {
-    const optedInMembers = await this.db.getOptedInMembers(groupId);
+    const optedInMembers = await this.repos.members.findOptedInByGroup(groupId);
 
     if (optedInMembers.length === 0) {
       console.log(`No opted-in members for group ${groupId}`);
@@ -251,7 +269,7 @@ export class BotHandlers {
 
       return {
         topic,
-        timeframe: 'the upcoming days' // Default timeframe
+        timeframe: 'TBD' // Default timeframe since user no longer requires it
       };
     }
 
@@ -272,14 +290,14 @@ export class BotHandlers {
       return;
     }
 
-    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    const group = await this.repos.groups.findByTelegramId(chat.id.toString());
     if (!group) {
       await ctx.reply('This group is not registered. Use /start to register it.');
       return;
     }
 
     // Check if user is opted-in
-    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
+    const isOptedIn = await this.repos.members.isOptedIn(user.id.toString(), group.id);
     if (!isOptedIn) {
       await ctx.reply(
         `❌ @${user.username || user.first_name}, you must opt-in first to cancel a scheduling round.\n` +
@@ -289,327 +307,21 @@ export class BotHandlers {
     }
 
     // Check if there's an active round
-    const activeRound = await this.db.getActiveRoundByGroup(group.id);
+    const activeRound = await this.repos.rounds.findActiveByGroup(group.id);
     if (!activeRound) {
       await ctx.reply('No active scheduling round to cancel in this group.');
       return;
     }
 
     // Cancel the round
-    await this.db.cancelRound(activeRound.id);
+    await this.repos.rounds.cancel(activeRound.id);
 
     await ctx.reply(
       `✅ **Scheduling Round Cancelled**\n\n` +
-      `Topic: ${activeRound.topic}\n` +
-      `Timeframe: ${activeRound.timeframe}\n\n` +
+      `Topic: ${activeRound.topic}\n\n` +
       `The scheduling round has been cancelled by @${user.username || user.first_name}.`,
       { parse_mode: 'Markdown' }
     );
-  }
-
-  async handleAvailabilityResponse(ctx: Context): Promise<void> {
-    const user = ctx.from;
-    if (!user) return;
-
-    const userId = user.id.toString();
-    const chat = ctx.chat;
-
-    if (!chat || chat.type !== 'private') return;
-
-    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-    if (!messageText) {
-      await ctx.reply('Please send your availability as a text message.');
-      return;
-    }
-    // Check if user has a pending confirmation
-    const pendingResponse = await this.db.getPendingAvailabilityResponse(userId);
-
-    if (pendingResponse) {
-      const normalizedText = messageText.toLowerCase().trim();
-
-      if (normalizedText === 'yes' || normalizedText === 'y' || normalizedText === 'correct' || normalizedText === 'right') {
-        await this.db.confirmAvailabilityResponse(pendingResponse.roundId, userId);
-        await ctx.reply(
-          `✅ **Availability Confirmed!**\n\n` +
-          `Your availability has been recorded. Thank you!`,
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      } else {
-        // User is correcting - re-parse and confirm again
-        let parsedAvailability: any;
-        try {
-          const nluResult = await this.nluService.parseAvailability(messageText);
-          if (nluResult.success && nluResult.parsed) {
-            parsedAvailability = {
-              slots: nluResult.parsed,
-              isVague: nluResult.isVague,
-              source: 'opencode'
-            };
-          } else {
-            parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
-            parsedAvailability.source = 'fallback';
-          }
-        } catch (e) {
-          parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
-          parsedAvailability.source = 'fallback';
-        }
-
-        await this.db.updateAvailabilityResponse(
-          pendingResponse.roundId,
-          userId,
-          messageText,
-          parsedAvailability
-        );
-
-        await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
-        return;
-      }
-    }
-
-    // New availability response
-    const member = await this.findMemberWithActiveRound(userId);
-    if (!member) {
-      await ctx.reply(
-        `❌ You don't have any active scheduling rounds.\n` +
-        `Please wait for a scheduling round to start in your group.`
-      );
-      return;
-    }
-
-    // Story 4.5: Try to parse with OpenCode NLU, with fallback on failure
-    let parsedAvailability: any;
-    let parseError: string | null = null;
-    let isVague = false;
-
-    try {
-      const nluResult = await this.nluService.parseAvailability(messageText);
-
-      if (nluResult.success && nluResult.parsed) {
-        parsedAvailability = {
-          slots: nluResult.parsed,
-          isVague: nluResult.isVague,
-          source: 'opencode'
-        };
-        isVague = nluResult.isVague;
-      } else {
-        // NLU returned but couldn't parse - use fallback
-        parseError = nluResult.error || 'Could not parse availability';
-        parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
-        parsedAvailability.source = 'fallback';
-        parsedAvailability.nluError = parseError;
-        // Story 4.4: Check if response is vague using fallback criteria
-        isVague = nluResult.isVague || this.isVagueResponse(parsedAvailability, messageText);
-      }
-    } catch (error) {
-      // API failure - queue for retry (NFR6)
-      console.error('OpenCode API failure:', error);
-      parseError = error instanceof Error ? error.message : 'API unavailable';
-
-      // Queue the request for retry
-      await this.db.queuePendingNLURequest(
-        member.roundId,
-        userId,
-        messageText,
-        parseError
-      );
-
-      // Use fallback parser for immediate response
-      parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
-      parsedAvailability.source = 'fallback';
-      parsedAvailability.nluError = parseError;
-      parsedAvailability.queuedForRetry = true;
-
-      // Story 4.4: Check if response is vague using fallback
-      isVague = this.isVagueResponse(parsedAvailability, messageText);
-
-      // Inform user about the delay
-      await ctx.reply(
-        `⏳ **Processing Delayed**\n\n` +
-        `I couldn't connect to the language processing service right now. ` +
-        `I've saved your response and will process it automatically when the service is back.\n\n` +
-        `For now, here's what I understood using basic parsing:`,
-        { parse_mode: 'Markdown' }
-      );
-    }
-
-    // Story 4.4: Handle vague responses
-    if (isVague) {
-      // Count how many vague responses user has given for this round
-      const vagueCount = await this.db.getVagueResponseCount(userId, member.roundId);
-
-      // Store the vague response
-      await this.db.createAvailabilityResponse(
-        member.roundId,
-        userId,
-        messageText,
-        parsedAvailability
-      );
-
-      // Progressive prompting based on vague count
-      if (vagueCount === 0) {
-        // First vague response - gentle prompt
-        await ctx.reply(
-          `🤔 I received: "${messageText}"\n\n` +
-          `To find the best meeting time, I need more specific availability. ` +
-          `Could you please tell me:\n` +
-          `• Which specific days work for you?\n` +
-          `• What times on those days?\n\n` +
-          `For example: "Tuesday after 6pm" or "Tomorrow morning 10am"`,
-          { parse_mode: 'Markdown' }
-        );
-      } else if (vagueCount === 1) {
-        // Second vague response - more specific prompt
-        await ctx.reply(
-          `📝 Thanks for your response, but I still need more details.\n\n` +
-          `Please provide:\n` +
-          `• Day of the week (Monday, Tuesday, etc.)\n` +
-          `• Time range (morning, afternoon, evening, or specific hours)\n\n` +
-          `Examples:\n` +
-          `• "I'm free Thursday afternoon"\n` +
-          `• "Friday 2pm-5pm works for me"\n` +
-          `• "Monday or Wednesday evening"`,
-          { parse_mode: 'Markdown' }
-        );
-      } else if (vagueCount === 2) {
-        // Third vague response - final attempt with examples
-        await ctx.reply(
-          `⚠️ I'm having trouble understanding your availability.\n\n` +
-          `To schedule effectively, I need to know:\n` +
-          `1. Which days you're available\n` +
-          `2. What times on those days\n\n` +
-          `Try something like:\n` +
-          `✅ "I'm free Tuesday 6pm-8pm and Thursday 7pm-9pm"\n` +
-          `✅ "Monday afternoon works for me"\n` +
-          `✅ "Friday or Saturday morning"\n\n` +
-          `Please try one more time with specific days and times!`,
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        // Fourth or more vague responses - accept but warn
-        await ctx.reply(
-          `✅ I've recorded your response: "${messageText}"\n\n` +
-          `⚠️ Note: Your availability wasn't very specific, so it may be harder ` +
-          `to find a time that works for everyone. If you can provide more details ` +
-          `later, just send me a new message!`,
-          { parse_mode: 'Markdown' }
-        );
-
-        // Mark this vague response as the "final" one
-        await this.db.updateAvailabilityResponseStatus(
-          member.roundId,
-          userId,
-          'confirmed_vague'
-        );
-      }
-      return;
-    }
-
-    // Store the response for non-vague cases
-    await this.db.createAvailabilityResponse(
-      member.roundId,
-      userId,
-      messageText,
-      parsedAvailability
-    );
-
-    await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
-  }
-
-  private async findMemberWithActiveRound(userId: string): Promise<{ roundId: string; groupId: string } | null> {
-    const memberships = await this.db.getPrisma().member.findMany({
-      where: { userId },
-      select: { groupId: true }
-    });
-
-    for (const membership of memberships) {
-      const activeRound = await this.db.getActiveRoundByGroup(membership.groupId);
-      if (activeRound) {
-        return { roundId: activeRound.id, groupId: membership.groupId };
-      }
-    }
-
-    return null;
-  }
-
-  private parseNaturalLanguageAvailability(text: string): any {
-    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const foundDays: string[] = [];
-
-    const lowerText = text.toLowerCase();
-    days.forEach(day => {
-      if (lowerText.includes(day)) {
-        foundDays.push(day.charAt(0).toUpperCase() + day.slice(1));
-      }
-    });
-
-    const timeMatches = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/gi) || [];
-
-    return {
-      days: foundDays,
-      times: timeMatches,
-      raw: text,
-      parsed: foundDays.length > 0 || timeMatches.length > 0
-    };
-  }
-
-  private async sendConfirmationRequest(ctx: Context, rawText: string, parsed: any): Promise<void> {
-    let interpretation = `**I understood:**\n`;
-
-    if (parsed.source === 'opencode' && parsed.slots) {
-      parsed.slots.forEach((slot: any) => {
-        interpretation += `• ${slot.explanation}\n`;
-      });
-    } else {
-      if (parsed.days && parsed.days.length > 0) {
-        interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
-      }
-
-      if (parsed.times && parsed.times.length > 0) {
-        interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
-      }
-
-      if ((!parsed.days || parsed.days.length === 0) && (!parsed.times || parsed.times.length === 0)) {
-        interpretation += `I couldn't identify specific days or times. I'll record: "${rawText}"\n`;
-      }
-    }
-
-    interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
-
-    await ctx.reply(interpretation, { parse_mode: 'Markdown' });
-  }
-
-  // Story 4.4: Helper method to detect vague responses
-  private isVagueResponse(parsed: any, rawText: string): boolean {
-    // If no days or times were parsed, it's vague
-    const hasNoDays = !parsed.days || parsed.days.length === 0;
-    const hasNoTimes = !parsed.times || parsed.times.length === 0;
-
-    if (hasNoDays && hasNoTimes) {
-      return true;
-    }
-
-    // Check for vague terms in the raw text
-    const vagueTerms = [
-      'sometime', 'whenever', 'anytime', 'soon', 'later',
-      'maybe', 'not sure', 'depends', 'flexible', 'whenever works',
-      'any time', 'all day', 'whole day'
-    ];
-
-    const lowerText = rawText.toLowerCase();
-    const containsVagueTerm = vagueTerms.some(term => lowerText.includes(term));
-
-    // If only has days but no times, it's vague
-    if (!hasNoDays && hasNoTimes) {
-      return true;
-    }
-
-    // If contains vague terms, it's vague
-    if (containsVagueTerm) {
-      return true;
-    }
-
-    return false;
   }
 
   async handleMembers(ctx: Context): Promise<void> {
@@ -619,13 +331,13 @@ export class BotHandlers {
       return;
     }
 
-    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    const group = await this.repos.groups.findByTelegramId(chat.id.toString());
     if (!group) {
       await ctx.reply('This group is not registered. Use /start to register it.');
       return;
     }
 
-    const { optedIn, notOptedIn } = await this.db.getAllMembersWithOptInStatus(group.id);
+    const { optedIn, notOptedIn } = await this.repos.members.getOptInStatusByGroup(group.id);
 
     const optedInCount = optedIn.length;
     const notOptedInCount = notOptedIn.length;
@@ -657,6 +369,29 @@ export class BotHandlers {
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
 
+  async handleSettings(ctx: Context): Promise<void> {
+    const chat = ctx.chat;
+    if (!chat || chat.type === 'private') {
+      await ctx.reply('This command only works in group chats.');
+      return;
+    }
+
+    const group = await this.repos.groups.findByTelegramId(chat.id.toString());
+    if (!group) {
+      await ctx.reply('This group is not registered. Use /start to register it.');
+      return;
+    }
+
+    const settings = await this.repos.groups.getNudgeSettings(group.id);
+
+    await ctx.reply(
+      `⚙️ **Group Settings**\n\n` +
+      `**Nudge Interval:** ${settings.nudgeIntervalHours} hours\n` +
+      `**Max Nudges:** ${settings.maxNudgeCount}\n\n` +
+      `To change settings, contact an admin.`
+    );
+  }
+
   async handleHelp(ctx: Context): Promise<void> {
     const helpMessage = `🤖 **Zins Community Bot - Help**\n\n` +
       `I help groups find the best times to meet. Here are all available commands:\n\n` +
@@ -681,112 +416,215 @@ export class BotHandlers {
 
     await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
   }
-}
 
-  // Story 5.2: Handle /settings command
-  async handleSettings(ctx: Context): Promise<void> {
-    const chat = ctx.chat;
-    if (!chat || chat.type === 'private') {
-      await ctx.reply('This command only works in group chats.');
-      return;
-    }
-
+  // Story 4.2, 4.3, 4.4: Handle availability responses with NLU parsing and confirmation
+  async handleAvailabilityResponse(ctx: Context): Promise<void> {
     const user = ctx.from;
-    if (!user) {
-      await ctx.reply('Unable to identify user.');
-      return;
-    }
+    if (!user) return;
 
-    const group = await this.db.getGroupByTelegramId(chat.id.toString());
-    if (!group) {
-      await ctx.reply('This group is not registered. Use /start to register it.');
-      return;
-    }
+    const userId = user.id.toString();
+    const chat = ctx.chat;
 
-    // Check if user is opted-in
-    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
-    if (!isOptedIn) {
-      await ctx.reply(
-        `❌ @${user.username || user.first_name}, you must opt-in first to change group settings.\n` +
-        `Use the opt-in button or message me directly.`
-      );
-      return;
-    }
+    if (!chat || chat.type !== 'private') return;
 
     const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-    const args = messageText.split(' ').slice(1); // Remove command
+    if (!messageText) {
+      await ctx.reply('Please send your availability as a text message.');
+      return;
+    }
 
-    // Get current settings
-    const settings = await this.db.getNudgeSettings(group.id);
+    // Story 4.3: Check if user has a pending confirmation
+    const pendingResponse = await this.repos.responses.findPendingByUser(userId);
 
-    // If no arguments, show current settings
-    if (args.length === 0) {
+    if (pendingResponse) {
+      // Story 4.3: User is responding to a confirmation request
+      const normalizedText = messageText.toLowerCase().trim();
+
+      if (normalizedText === 'yes' || normalizedText === 'y' || normalizedText === 'correct' || normalizedText === 'right') {
+        // Story 4.3: Confirm the availability
+        await this.repos.responses.confirm(pendingResponse.roundId, userId);
+        await ctx.reply(
+          `✅ **Availability Confirmed!**\n\n` +
+          `Your availability has been recorded. Thank you!`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      } else {
+        // Story 4.3: User is correcting their availability - re-parse and confirm again
+        const parsedAvailability = await this.parseAvailabilityWithVagueCheck(messageText, pendingResponse.roundId, userId);
+        await this.repos.responses.update(
+          pendingResponse.roundId,
+          userId,
+          messageText,
+          parsedAvailability
+        );
+
+        await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
+        return;
+      }
+    }
+
+    // Story 4.2: New availability response - find active round for this user
+    const member = await this.findMemberWithActiveRound(userId);
+    if (!member) {
       await ctx.reply(
-        `⚙️ **Group Settings**\n\n` +
-        `**Nudge Settings (Story 5.2):**\n` +
-        `• Interval: ${settings.nudgeIntervalHours} hours\n` +
-        `• Max Nudges: ${settings.maxNudgeCount}\n\n` +
-        `**To change settings:**\n` +
-        `/settings nudge_interval <hours>\n` +
-        `/settings max_nudges <count>\n\n` +
-        `**Examples:**\n` +
-        `/settings nudge_interval 12\n` +
-        `/settings max_nudges 5`,
-        { parse_mode: 'Markdown' }
+        `❌ You don't have any active scheduling rounds.\n` +
+        `Please wait for a scheduling round to start in your group.`
       );
       return;
     }
 
-    // Parse settings command
-    const settingName = args[0];
-    const settingValue = parseInt(args[1], 10);
+    // Story 4.4: Check for vague responses
+    const parsedAvailability = await this.parseAvailabilityWithVagueCheck(messageText, member.roundId, userId);
 
-    if (isNaN(settingValue)) {
-      await ctx.reply(
-        `❌ Invalid value. Please provide a number.\n\n` +
-        `**Usage:**\n` +
-        `/settings nudge_interval <hours>\n` +
-        `/settings max_nudges <count>`
+    // Store the response
+    await this.repos.responses.create(
+      member.roundId,
+      userId,
+      messageText,
+      parsedAvailability
+    );
+
+    // Story 4.3: Send confirmation request
+    await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
+  }
+
+  // Story 4.4: Parse availability with vague response detection
+  private async parseAvailabilityWithVagueCheck(
+    text: string,
+    roundId: string,
+    userId: string
+  ): Promise<any> {
+    let parsedAvailability: any;
+
+    try {
+      const nluResult = await this.nluService.parseAvailability(text);
+
+      if (nluResult.success && nluResult.parsed) {
+        parsedAvailability = {
+          slots: nluResult.parsed,
+          isVague: nluResult.isVague,
+          source: 'opencode'
+        };
+
+        // Story 4.4: Check if this is a vague response and track it
+        if (nluResult.isVague) {
+          const vagueCount = await this.repos.responses.countVagueResponses(userId, roundId);
+
+          if (vagueCount >= 2) {
+            // Too many vague responses - accept it anyway
+            parsedAvailability.acceptedAnyway = true;
+            parsedAvailability.vagueCount = vagueCount + 1;
+          } else {
+            parsedAvailability.vagueCount = vagueCount + 1;
+            parsedAvailability.needsMoreSpecific = true;
+          }
+        }
+      } else {
+        // NLU returned but couldn't parse - use fallback
+        parsedAvailability = this.parseNaturalLanguageAvailability(text);
+        parsedAvailability.source = 'fallback';
+        parsedAvailability.nluError = nluResult.error;
+      }
+    } catch (error) {
+      // Story 4.5: API failure - queue for retry (NFR6)
+      console.error('OpenCode API failure:', error);
+
+      // Queue the request for retry
+      await this.repos.nluQueue.queue(
+        roundId,
+        userId,
+        text,
+        error instanceof Error ? error.message : 'API unavailable'
       );
-      return;
+
+      // Use fallback parser for immediate response
+      parsedAvailability = this.parseNaturalLanguageAvailability(text);
+      parsedAvailability.source = 'fallback';
+      parsedAvailability.nluError = error instanceof Error ? error.message : 'API unavailable';
+      parsedAvailability.queuedForRetry = true;
     }
 
-    // Validate and update settings
-    if (settingName === 'nudge_interval') {
-      if (settingValue < 1 || settingValue > 168) {
-        await ctx.reply(
-          `❌ Invalid interval. Must be between 1 and 168 hours (1 week).`
-        );
-        return;
-      }
+    return parsedAvailability;
+  }
 
-      await this.db.updateNudgeSettings(group.id, settingValue, settings.maxNudgeCount);
-      await ctx.reply(
-        `✅ **Setting Updated**\n\n` +
-        `Nudge interval changed to ${settingValue} hours.\n\n` +
-        `Members will now be reminded every ${settingValue} hours if they haven't responded.`
-      );
-    } else if (settingName === 'max_nudges') {
-      if (settingValue < 1 || settingValue > 10) {
-        await ctx.reply(
-          `❌ Invalid count. Must be between 1 and 10.`
-        );
-        return;
-      }
+  private async findMemberWithActiveRound(userId: string): Promise<{ roundId: string; groupId: string } | null> {
+    // Get all memberships for this user
+    const memberships = await this.repos.members.findByUserId(userId);
 
-      await this.db.updateNudgeSettings(group.id, settings.nudgeIntervalHours, settingValue);
-      await ctx.reply(
-        `✅ **Setting Updated**\n\n` +
-        `Maximum nudges changed to ${settingValue}.\n\n` +
-        `The bot will send up to ${settingValue} reminders to non-responders.`
-      );
-    } else {
-      await ctx.reply(
-        `❌ Unknown setting: ${settingName}\n\n` +
-        `**Available settings:**\n` +
-        `• nudge_interval - Hours between nudges (1-168)\n` +
-        `• max_nudges - Maximum nudges to send (1-10)`
-      );
+    // Check each group for active rounds
+    for (const membership of memberships) {
+      const activeRound = await this.repos.rounds.findActiveByGroup(membership.groupId);
+      if (activeRound) {
+        return { roundId: activeRound.id, groupId: membership.groupId };
+      }
     }
+
+    return null;
+  }
+
+  private parseNaturalLanguageAvailability(text: string): any {
+    // Simple mock parsing for demonstration
+    // In production, this would use OpenCode NLU
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const foundDays: string[] = [];
+
+    const lowerText = text.toLowerCase();
+    days.forEach(day => {
+      if (lowerText.includes(day)) {
+        foundDays.push(day.charAt(0).toUpperCase() + day.slice(1));
+      }
+    });
+
+    // Extract time patterns (simple regex)
+    const timeMatches = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/gi) || [];
+
+    return {
+      days: foundDays,
+      times: timeMatches,
+      raw: text,
+      parsed: foundDays.length > 0 || timeMatches.length > 0
+    };
+  }
+
+  private async sendConfirmationRequest(ctx: Context, rawText: string, parsed: any): Promise<void> {
+    let interpretation = `**I understood:**\n`;
+
+    if (parsed.days && parsed.days.length > 0) {
+      interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
+    }
+
+    if (parsed.times && parsed.times.length > 0) {
+      interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
+    }
+
+    if ((!parsed.days || parsed.days.length === 0) && (!parsed.times || parsed.times.length === 0)) {
+      interpretation += `I couldn't identify specific days or times. I'll record: "${rawText}"\n`;
+    }
+
+    // Story 4.4: Add vague response warning if needed
+    if (parsed.needsMoreSpecific) {
+      interpretation += `\n⚠️ **Need more details:**\n`;
+      interpretation += `Your response is a bit vague. Could you provide specific days and times?\n`;
+      interpretation += `For example: "Tuesday and Thursday after 3pm"\n`;
+    }
+
+    if (parsed.queuedForRetry) {
+      interpretation = `⏳ **Processing Delayed**\n\n`;
+      interpretation += `I couldn't connect to the language processing service right now. `;
+      interpretation += `I've saved your response and will process it automatically when the service is back.\n\n`;
+      interpretation += `For now, here's what I understood using basic parsing:\n\n`;
+
+      if (parsed.days && parsed.days.length > 0) {
+        interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
+      }
+      if (parsed.times && parsed.times.length > 0) {
+        interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
+      }
+    }
+
+    interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
+
+    await ctx.reply(interpretation, { parse_mode: 'Markdown' });
   }
 }

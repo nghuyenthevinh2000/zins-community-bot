@@ -1,6 +1,11 @@
-
 import { Context } from 'telegraf';
-import { DatabaseService } from './database.service';
+import {
+  RoundRepository,
+  NudgeRepository,
+  GroupRepository,
+  ResponseRepository,
+  MemberRepository
+} from '../db';
 
 export interface NudgeMessage {
   userId: string;
@@ -10,8 +15,16 @@ export interface NudgeMessage {
   maxNudges: number;
 }
 
+export interface NudgeRepositories {
+  rounds: RoundRepository;
+  nudges: NudgeRepository;
+  groups: GroupRepository;
+  responses: ResponseRepository;
+  members: MemberRepository;
+}
+
 export class NudgeService {
-  constructor(private db: DatabaseService) { }
+  constructor(private repos: NudgeRepositories) { }
 
   /**
    * Process nudges for a scheduling round
@@ -30,33 +43,30 @@ export class NudgeService {
 
     try {
       // Get round details
-      const round = await this.db.getPrisma().schedulingRound.findUnique({
-        where: { id: roundId },
-        include: { group: true }
-      });
+      const round = await this.repos.rounds.findById(roundId);
 
       if (!round || round.status !== 'active') {
         return { ...result, errors: ['Round not found or not active'] };
       }
 
       // Get nudge settings
-      const settings = await this.db.getNudgeSettings(round.groupId);
+      const settings = await this.repos.groups.getNudgeSettings(round.groupId);
 
       // Get non-responders
-      const nonResponders = await this.db.getNonResponders(roundId);
+      const nonResponders = await this.repos.nudges.getNonRespondersByRound(roundId);
 
       for (const userId of nonResponders) {
         try {
           // Check if we should send nudge
-          const nudgeCheck = await this.db.shouldSendNudge(round.groupId, roundId, userId);
+          const shouldSend = await this.shouldSendNudge(round.groupId, roundId, userId, settings);
 
-          if (!nudgeCheck.shouldSend) {
+          if (!shouldSend.shouldSend) {
             result.usersSkipped++;
             continue;
           }
 
           // Get current nudge count
-          const currentNudgeCount = await this.db.getNudgeCountForUser(round.groupId, roundId, userId);
+          const currentNudgeCount = await this.repos.nudges.countHistoryForUser(round.groupId, roundId, userId);
           const nudgeNumber = currentNudgeCount + 1;
 
           // Send nudge message
@@ -69,7 +79,7 @@ export class NudgeService {
           });
 
           // Record the nudge
-          await this.db.recordNudge(round.groupId, roundId, userId, nudgeNumber);
+          await this.repos.nudges.recordHistory(round.groupId, roundId, userId, nudgeNumber);
 
           result.nudgesSent++;
 
@@ -88,6 +98,31 @@ export class NudgeService {
     }
 
     return result;
+  }
+
+  private async shouldSendNudge(
+    groupId: string,
+    roundId: string,
+    userId: string,
+    settings: { nudgeIntervalHours: number; maxNudgeCount: number }
+  ): Promise<{ shouldSend: boolean; reason?: string }> {
+    const nudgeCount = await this.repos.nudges.countHistoryForUser(groupId, roundId, userId);
+
+    // Check if max nudges reached
+    if (nudgeCount >= settings.maxNudgeCount) {
+      return { shouldSend: false, reason: 'max_nudges_reached' };
+    }
+
+    // Check if enough time has passed since last nudge
+    const lastNudge = await this.repos.nudges.findLastHistoryForUser(groupId, roundId, userId);
+    if (lastNudge?.sentAt) {
+      const hoursSinceLastNudge = (Date.now() - lastNudge.sentAt.getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLastNudge < settings.nudgeIntervalHours) {
+        return { shouldSend: false, reason: 'too_soon' };
+      }
+    }
+
+    return { shouldSend: true };
   }
 
   private async sendNudgeMessage(
@@ -128,17 +163,16 @@ export class NudgeService {
     uniqueUsersNudged: number;
     averageNudgesPerUser: number;
   }> {
-    const nudges = await this.db.getPrisma().nudgeHistory.findMany({
-      where: { roundId }
-    });
-
-    const uniqueUsers = new Set(nudges.map(n => n.userId));
+    const allTracking = await this.repos.nudges.findAllTrackingByRound(roundId);
+    
+    const totalNudges = allTracking.reduce((sum, t) => sum + t.nudgeCount, 0);
+    const uniqueUsers = new Set(allTracking.map(t => t.userId));
 
     return {
-      totalNudgesSent: nudges.length,
+      totalNudgesSent: totalNudges,
       uniqueUsersNudged: uniqueUsers.size,
       averageNudgesPerUser: uniqueUsers.size > 0
-        ? nudges.length / uniqueUsers.size
+        ? totalNudges / uniqueUsers.size
         : 0
     };
   }
@@ -147,21 +181,18 @@ export class NudgeService {
    * Check if nudging is complete for a round (all non-responders have reached max nudges)
    */
   async isNudgingComplete(roundId: string): Promise<boolean> {
-    const round = await this.db.getPrisma().schedulingRound.findUnique({
-      where: { id: roundId },
-      include: { group: true }
-    });
+    const round = await this.repos.rounds.findById(roundId);
 
     if (!round) return true;
 
-    const settings = await this.db.getNudgeSettings(round.groupId);
-    const nonResponders = await this.db.getNonResponders(roundId);
+    const settings = await this.repos.groups.getNudgeSettings(round.groupId);
+    const nonResponders = await this.repos.nudges.getNonRespondersByRound(roundId);
 
     if (nonResponders.length === 0) return true;
 
     // Check if all non-responders have received max nudges
     for (const userId of nonResponders) {
-      const nudgeCount = await this.db.getNudgeCountForUser(round.groupId, roundId, userId);
+      const nudgeCount = await this.repos.nudges.countHistoryForUser(round.groupId, roundId, userId);
       if (nudgeCount < settings.maxNudgeCount) {
         return false;
       }
