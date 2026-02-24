@@ -18,6 +18,14 @@ const handlers = new BotHandlers(dbService);
 const retryService = new NLURetryService(dbService, bot.telegram);
 
 // Bot command handlers
+bot.use(async (ctx, next) => {
+  if (ctx.message && 'text' in ctx.message) {
+    console.log(`[Bot] Received ${ctx.chat?.type} message from ${ctx.from?.id}: ${ctx.message.text}`);
+  }
+  return next();
+});
+
+bot.start((ctx) => handlers.handleStart(ctx));
 bot.command('schedule', (ctx) => handlers.handleSchedule(ctx));
 bot.command('cancel', (ctx) => handlers.handleCancel(ctx));
 bot.command('status', (ctx) => handlers.handleStatus(ctx));
@@ -29,7 +37,7 @@ bot.on('message', async (ctx) => {
   // Only process private messages (DMs) that aren't commands
   if (ctx.chat?.type !== 'private') return;
   if (ctx.message && 'text' in ctx.message && ctx.message.text?.startsWith('/')) return;
-  
+
   await handlers.handleAvailabilityResponse(ctx);
 });
 

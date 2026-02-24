@@ -11,10 +11,27 @@ export class BotHandlers {
 
   async handleStart(ctx: Context): Promise<void> {
     const chat = ctx.chat;
-    if (!chat) return;
+    const user = ctx.from;
+    if (!chat || !user) return;
 
     if (chat.type === 'private') {
-      await ctx.reply('Welcome! Add me to a group to start scheduling meetings.\nUse /start in a group to register it.');
+      const payload = (ctx as any).startPayload as string | undefined;
+
+      if (payload && payload.startsWith('optin_')) {
+        const telegramGroupId = payload.replace('optin_', '');
+        const group = await this.db.getGroupByTelegramId(telegramGroupId);
+
+        if (group) {
+          await this.db.optInMember(user.id.toString(), group.id);
+          await ctx.reply(`✅ Success! You have been opted-in to scheduling for the group: **${group.name}**.\n\nYou will now receive DMs when a new scheduling round starts.`);
+          return;
+        } else {
+          await ctx.reply('❌ Sorry, I couldn\'t find that group. Make sure I\'ve been added to the group and /start has been used there.');
+          return;
+        }
+      }
+
+      await ctx.reply('Welcome! I\'m the Zins Community Bot. I help coordinate group schedules.\n\nTo use me:\n1. Add me to a Telegram group\n2. Use /start in that group\n3. Click the opt-in link I provide');
     } else {
       // Group chat - register the group
       const group = await this.db.findOrCreateGroup(
@@ -23,9 +40,18 @@ export class BotHandlers {
       );
 
       await ctx.reply(
-        `Welcome! I've registered this group for scheduling.\n` +
-        `Group ID: ${group.id}\n\n` +
-        `Members can opt-in by messaging me directly or clicking the opt-in button.`
+        `🎉 Hello! I've registered **${group.name}** for scheduling.\n\n` +
+        `Members can opt-in by clicking the button below to receive direct messages for availability.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{
+                text: '✅ Opt-In Now',
+                url: `https://t.me/${ctx.botInfo.username}?start=optin_${chat.id}`
+              }]
+            ]
+          }
+        }
       );
     }
   }
@@ -429,7 +455,7 @@ export class BotHandlers {
           `Could you please tell me:\n` +
           `• Which specific days work for you?\n` +
           `• What times on those days?\n\n` +
-          `For example: "Tuesday after 6pm" or "Wednesday morning"`,
+          `For example: "Tuesday after 6pm" or "Tomorrow morning 10am"`,
           { parse_mode: 'Markdown' }
         );
       } else if (vagueCount === 1) {

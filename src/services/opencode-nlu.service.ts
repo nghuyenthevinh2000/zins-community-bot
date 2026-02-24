@@ -43,28 +43,42 @@ export class OpenCodeNLUService {
       if (!sessionRes.data) throw new Error("No session created");
       const session = sessionRes.data;
 
-      const promptText = `You are a natural language time parser. Extract specific date and time ranges from the user's availability text. 
-              
-Parse expressions like "Tuesday after 6pm", "all day Thursday", "Friday morning", "next week", etc.
+      const promptText = `You are a natural language time parser. Your task is to extract specific date and time ranges from user availability text.
 
-Return a JSON array of time ranges with this format:
-[
-  {
-    "startTime": "ISO 8601 datetime string",
-    "endTime": "ISO 8601 datetime string",
-    "explanation": "brief explanation of what was parsed"
-  }
-]
+Current Reference Time: ${referenceDate.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+(ISO Format for reference: ${referenceDate.toISOString()})
 
 Rules:
-- Convert relative dates (Tuesday, next week) to absolute dates based on the reference date
-- If a time range is not specified, assume reasonable defaults (e.g., "morning" = 9am-12pm, "afternoon" = 12pm-6pm, "evening" = 6pm-10pm)
-- "All day" means 9am to 6pm
-- If the text is too vague to extract specific times, set "isVague": true inside the JSON and return it as the first item of an array, or return an empty array []
-- Always return valid JSON as a plain array [], no markdown formatting, no conversational text.
+1. Return a JSON array of objects, each containing:
+   - "startTime": ISO 8601 datetime string
+   - "endTime": ISO 8601 datetime string
+   - "explanation": Brief explanation of how you parsed this slot
 
-Reference date: ${referenceDate.toISOString()}
-Text to parse: ${text}`;
+2. Handling Relative Dates:
+   - "tomorrow": Use the day after the reference date.
+   - Days of the week (e.g., "Wednesday", "next Friday"): Map to the correct upcoming absolute date.
+   - Relative weeks: "next week" starts from the coming Monday or as specified.
+
+3. Handling Imprecise Times:
+   - If a specific hour isn't mentioned:
+     - "morning": 09:00 to 12:00
+     - "afternoon": 12:00 to 18:00
+     - "evening": 18:00 to 22:00
+     - "all day": 09:00 to 18:00
+   - If only a start time is given (e.g., "after 6pm"), assume a 2-hour duration unless "all night" or similar is implied.
+
+4. Vague Responses:
+   - If the text is too vague to extract ANY specific time (e.g., "I'm busy", "not sure yet", "whenever"), return: [{"isVague": true}]
+   - If you can extract at least one slot, do NOT set "isVague": true.
+
+5. Formatting: 
+   - Return ONLY valid JSON. No markdown blocks, no prefix/suffix.
+
+Examples:
+- "I am free tomorrow at 6pm" -> [{"startTime": "...T18:00:00", "endTime": "...T20:00:00", "explanation": "Tomorrow at 6pm"}]
+- "Wednesday afternoon" -> [{"startTime": "...T12:00:00", "endTime": "...T18:00:00", "explanation": "Wednesday afternoon"}]
+
+Text to parse: "${text}"`;
 
       const response = await client.session.prompt({
         path: { id: session.id },

@@ -2,8 +2,12 @@ FROM oven/bun:latest
 
 WORKDIR /app
 
+# Set timezone to GMT+7 (Asia/Ho_Chi_Minh)
+ENV TZ=Asia/Ho_Chi_Minh
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # Install curl and common dependencies for OpenCode CLI
-RUN apt-get update && apt-get install -y curl sqlite3 ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl sqlite3 ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 
 # Install OpenCode CLI
 RUN curl -fsSL https://opencode.ai/install | bash
