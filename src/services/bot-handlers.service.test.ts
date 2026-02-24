@@ -270,24 +270,24 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   test('should queue request and inform user when OpenCode API fails (Story 4.5)', async () => {
     // Mock nluService.parseAvailability to throw an error
     (handlers as any).nluService.parseAvailability = mock(() => Promise.reject(new Error('API Unavailable')));
-    
+
     // Add required db method for this test
     dbServiceMock.queuePendingNLURequest = mock(() => Promise.resolve({}));
-    
+
     await handlers.handleAvailabilityResponse(ctxMock);
 
     expect(dbServiceMock.queuePendingNLURequest).toHaveBeenCalledWith(
       'round-1',
       '456',
-      'I am free Monday',
+      'I am free Monday at 6pm',
       'API Unavailable'
     );
-    
+
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Processing Delayed'),
       expect.any(Object)
     );
-    
+
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('I understood:'),
       expect.any(Object)
