@@ -2,6 +2,7 @@ import { Telegraf } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
 import { DatabaseService } from './services/database.service';
 import { BotHandlers } from './services/bot-handlers.service';
+import { NLURetryService } from './services/nlu-retry.service';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -12,6 +13,9 @@ const bot = new Telegraf(token || 'dummy_token');
 const prisma = new PrismaClient();
 const dbService = new DatabaseService(prisma);
 const handlers = new BotHandlers(dbService);
+
+// Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
+const retryService = new NLURetryService(dbService, bot.telegram);
 
 // Bot command handlers
 bot.command('schedule', (ctx) => handlers.handleSchedule(ctx));
@@ -98,12 +102,17 @@ if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_DOMAIN) {
   console.log('Bot launched with long polling');
 }
 
+// Start NLU retry service for processing queued requests (Story 4.5)
+retryService.start();
+
 // Enable graceful stop
 process.once('SIGINT', async () => {
   bot.stop('SIGINT');
+  retryService.stop();
   await prisma.$disconnect();
 });
 process.once('SIGTERM', async () => {
   bot.stop('SIGTERM');
+  retryService.stop();
   await prisma.$disconnect();
 });

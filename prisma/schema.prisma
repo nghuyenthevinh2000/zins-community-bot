@@ -49,6 +49,7 @@ model SchedulingRound {
   
   group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   availabilityResponses AvailabilityResponse[]
+  pendingNLURequests PendingNLURequest[]
   
   @@index([groupId])
   @@index([groupId, status])
@@ -75,4 +76,24 @@ model AvailabilityResponse {
   @@index([status])
   @@index([roundId, userId])
   @@map("availability_responses")
+}
+
+model PendingNLURequest {
+  id                String   @id @default(uuid())
+  roundId           String   @map("round_id")
+  userId            String   @map("user_id")
+  rawResponse       String   @map("raw_response")
+  retryCount        Int      @default(0) @map("retry_count")
+  nextRetryAt       DateTime @map("next_retry_at")
+  lastError         String?  @map("last_error")
+  status            String   @default("pending") // pending, processing, completed, failed
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  @@index([status])
+  @@index([nextRetryAt])
+  @@index([retryCount])
+  @@map("pending_nlu_requests")
 }

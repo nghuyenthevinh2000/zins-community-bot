@@ -1,8 +1,13 @@
 import { Context } from 'telegraf';
 import { DatabaseService } from './database.service';
+import { OpenCodeNLUService } from './opencode-nlu.service';
 
 export class BotHandlers {
-  constructor(private db: DatabaseService) { }
+  private nluService: OpenCodeNLUService;
+
+  constructor(private db: DatabaseService) {
+    this.nluService = new OpenCodeNLUService();
+  }
 
   async handleStart(ctx: Context): Promise<void> {
     const chat = ctx.chat;
@@ -306,7 +311,24 @@ export class BotHandlers {
         return;
       } else {
         // User is correcting - re-parse and confirm again
-        const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+        let parsedAvailability: any;
+        try {
+          const nluResult = await this.nluService.parseAvailability(messageText);
+          if (nluResult.success && nluResult.parsed) {
+            parsedAvailability = {
+              slots: nluResult.parsed,
+              isVague: nluResult.isVague,
+              source: 'opencode'
+            };
+          } else {
+            parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+            parsedAvailability.source = 'fallback';
+          }
+        } catch (e) {
+          parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+          parsedAvailability.source = 'fallback';
+        }
+
         await this.db.updateAvailabilityResponse(
           pendingResponse.roundId,
           userId,
@@ -329,16 +351,67 @@ export class BotHandlers {
       return;
     }
 
-    // Parse availability
-    const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
-    
-    // Story 4.4: Check if response is vague
-    const isVague = this.isVagueResponse(parsedAvailability, messageText);
-    
+    // Story 4.5: Try to parse with OpenCode NLU, with fallback on failure
+    let parsedAvailability: any;
+    let parseError: string | null = null;
+    let isVague = false;
+
+    try {
+      const nluResult = await this.nluService.parseAvailability(messageText);
+
+      if (nluResult.success && nluResult.parsed) {
+        parsedAvailability = {
+          slots: nluResult.parsed,
+          isVague: nluResult.isVague,
+          source: 'opencode'
+        };
+        isVague = nluResult.isVague;
+      } else {
+        // NLU returned but couldn't parse - use fallback
+        parseError = nluResult.error || 'Could not parse availability';
+        parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+        parsedAvailability.source = 'fallback';
+        parsedAvailability.nluError = parseError;
+        // Story 4.4: Check if response is vague using fallback criteria
+        isVague = nluResult.isVague || this.isVagueResponse(parsedAvailability, messageText);
+      }
+    } catch (error) {
+      // API failure - queue for retry (NFR6)
+      console.error('OpenCode API failure:', error);
+      parseError = error instanceof Error ? error.message : 'API unavailable';
+
+      // Queue the request for retry
+      await this.db.queuePendingNLURequest(
+        member.roundId,
+        userId,
+        messageText,
+        parseError
+      );
+
+      // Use fallback parser for immediate response
+      parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+      parsedAvailability.source = 'fallback';
+      parsedAvailability.nluError = parseError;
+      parsedAvailability.queuedForRetry = true;
+
+      // Story 4.4: Check if response is vague using fallback
+      isVague = this.isVagueResponse(parsedAvailability, messageText);
+
+      // Inform user about the delay
+      await ctx.reply(
+        `⏳ **Processing Delayed**\n\n` +
+        `I couldn't connect to the language processing service right now. ` +
+        `I've saved your response and will process it automatically when the service is back.\n\n` +
+        `For now, here's what I understood using basic parsing:`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // Story 4.4: Handle vague responses
     if (isVague) {
       // Count how many vague responses user has given for this round
       const vagueCount = await this.db.getVagueResponseCount(userId, member.roundId);
-      
+
       // Store the vague response
       await this.db.createAvailabilityResponse(
         member.roundId,
@@ -346,7 +419,7 @@ export class BotHandlers {
         messageText,
         parsedAvailability
       );
-      
+
       // Progressive prompting based on vague count
       if (vagueCount === 0) {
         // First vague response - gentle prompt
@@ -395,7 +468,7 @@ export class BotHandlers {
           `later, just send me a new message!`,
           { parse_mode: 'Markdown' }
         );
-        
+
         // Mark this vague response as the "final" one
         await this.db.updateAvailabilityResponseStatus(
           member.roundId,
@@ -406,7 +479,7 @@ export class BotHandlers {
       return;
     }
 
-    // Not vague - store and confirm normally
+    // Store the response for non-vague cases
     await this.db.createAvailabilityResponse(
       member.roundId,
       userId,
@@ -457,16 +530,22 @@ export class BotHandlers {
   private async sendConfirmationRequest(ctx: Context, rawText: string, parsed: any): Promise<void> {
     let interpretation = `**I understood:**\n`;
 
-    if (parsed.days && parsed.days.length > 0) {
-      interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
-    }
+    if (parsed.source === 'opencode' && parsed.slots) {
+      parsed.slots.forEach((slot: any) => {
+        interpretation += `• ${slot.explanation}\n`;
+      });
+    } else {
+      if (parsed.days && parsed.days.length > 0) {
+        interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
+      }
 
-    if (parsed.times && parsed.times.length > 0) {
-      interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
-    }
+      if (parsed.times && parsed.times.length > 0) {
+        interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
+      }
 
-    if ((!parsed.days || parsed.days.length === 0) && (!parsed.times || parsed.times.length === 0)) {
-      interpretation += `I couldn't identify specific days or times. I'll record: "${rawText}"\n`;
+      if ((!parsed.days || parsed.days.length === 0) && (!parsed.times || parsed.times.length === 0)) {
+        interpretation += `I couldn't identify specific days or times. I'll record: "${rawText}"\n`;
+      }
     }
 
     interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
@@ -479,31 +558,31 @@ export class BotHandlers {
     // If no days or times were parsed, it's vague
     const hasNoDays = !parsed.days || parsed.days.length === 0;
     const hasNoTimes = !parsed.times || parsed.times.length === 0;
-    
+
     if (hasNoDays && hasNoTimes) {
       return true;
     }
-    
+
     // Check for vague terms in the raw text
     const vagueTerms = [
-      'sometime', 'whenever', 'anytime', 'soon', 'later', 
+      'sometime', 'whenever', 'anytime', 'soon', 'later',
       'maybe', 'not sure', 'depends', 'flexible', 'whenever works',
       'any time', 'all day', 'whole day'
     ];
-    
+
     const lowerText = rawText.toLowerCase();
     const containsVagueTerm = vagueTerms.some(term => lowerText.includes(term));
-    
+
     // If only has days but no times, it's vague
     if (!hasNoDays && hasNoTimes) {
       return true;
     }
-    
+
     // If contains vague terms, it's vague
     if (containsVagueTerm) {
       return true;
     }
-    
+
     return false;
   }
 

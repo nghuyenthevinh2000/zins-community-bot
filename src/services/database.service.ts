@@ -224,8 +224,8 @@ export class DatabaseService {
     // We use a heuristic: count responses with status 'pending' that were created 
     // after the first vague response
     const vagueResponses = await this.prisma.availabilityResponse.findMany({
-      where: { 
-        roundId, 
+      where: {
+        roundId,
         userId,
         status: 'pending'
       },
@@ -238,7 +238,7 @@ export class DatabaseService {
       const parsed = response.parsedAvailability as any;
       const hasNoDays = !parsed?.days || parsed.days.length === 0;
       const hasNoTimes = !parsed?.times || parsed.times.length === 0;
-      
+
       // Consider vague if: no days AND no times, OR has days but no times
       if ((hasNoDays && hasNoTimes) || (!hasNoDays && hasNoTimes)) {
         vagueCount++;
@@ -270,6 +270,92 @@ export class DatabaseService {
     return this.prisma.availabilityResponse.update({
       where: { id: existing.id },
       data: { status }
+    });
+  }
+
+  // Pending NLU Request operations (for API failure recovery - NFR6)
+  async queuePendingNLURequest(
+    roundId: string,
+    userId: string,
+    rawResponse: string,
+    lastError?: string
+  ): Promise<any> {
+    // Calculate next retry with exponential backoff (starts at 1 minute)
+    const nextRetryAt = new Date(Date.now() + 60 * 1000);
+
+    return this.prisma.pendingNLURequest.upsert({
+      where: {
+        id: await this.getPendingRequestId(roundId, userId)
+      },
+      update: {
+        retryCount: { increment: 1 },
+        nextRetryAt,
+        lastError: lastError || undefined,
+        status: 'pending'
+      },
+      create: {
+        roundId,
+        userId,
+        rawResponse,
+        retryCount: 0,
+        nextRetryAt,
+        lastError: lastError || undefined,
+        status: 'pending'
+      }
+    });
+  }
+
+  private async getPendingRequestId(roundId: string, userId: string): Promise<string> {
+    const existing = await this.prisma.pendingNLURequest.findFirst({
+      where: { roundId, userId, status: { not: 'completed' } }
+    });
+    return existing?.id || 'new';
+  }
+
+  async getPendingNLURequestsForRetry(): Promise<any[]> {
+    return this.prisma.pendingNLURequest.findMany({
+      where: {
+        status: 'pending',
+        nextRetryAt: { lte: new Date() },
+        retryCount: { lt: 5 } // Max 5 retries
+      },
+      orderBy: { nextRetryAt: 'asc' }
+    });
+  }
+
+  async markNLURequestCompleted(id: string): Promise<any> {
+    return this.prisma.pendingNLURequest.update({
+      where: { id },
+      data: { status: 'completed' }
+    });
+  }
+
+  async markNLURequestFailed(id: string, error: string): Promise<any> {
+    return this.prisma.pendingNLURequest.update({
+      where: { id },
+      data: { status: 'failed', lastError: error }
+    });
+  }
+
+  async updateNLURequestRetry(id: string, retryCount: number, lastError?: string): Promise<any> {
+    // Exponential backoff: 1min, 2min, 4min, 8min, 16min
+    const delayMs = Math.min(Math.pow(2, retryCount) * 60 * 1000, 16 * 60 * 1000);
+    const nextRetryAt = new Date(Date.now() + delayMs);
+
+    return this.prisma.pendingNLURequest.update({
+      where: { id },
+      data: {
+        retryCount,
+        nextRetryAt,
+        lastError: lastError || undefined,
+        status: retryCount >= 5 ? 'failed' : 'pending'
+      }
+    });
+  }
+
+  async deleteNLURequest(id: string): Promise<any> {
+    return this.prisma.pendingNLURequest.delete({
+      where: { id }
     });
   }
 }
