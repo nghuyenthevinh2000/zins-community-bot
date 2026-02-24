@@ -20,21 +20,34 @@ bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
 // Unified start and deep link handler
 bot.start(async (ctx) => {
   const payload = ctx.payload;
-  
+
   // Handle opt-in deep link
   if (payload && payload.startsWith('optin_')) {
     const groupId = payload.replace('optin_', '');
-    
+
     // Check if this is a private chat (DM)
     if (ctx.chat.type === 'private') {
-      await ctx.reply(
-        `✅ **You've opted in!**\n\n` +
-        `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
-        `and be included in future scheduling rounds for your group.\n\n` +
-        `You can use /help at any time to see available commands.`,
-        { parse_mode: 'Markdown' }
-      );
-      console.log(`Member opted in: User ${ctx.from.id} for group ${groupId}`);
+      try {
+        const group = await dbService.getGroupByTelegramId(groupId);
+        if (!group) {
+          await ctx.reply('❌ Sorry, this group is not registered with the bot.');
+          return;
+        }
+
+        await dbService.optInMember(ctx.from.id.toString(), group.id);
+
+        await ctx.reply(
+          `✅ **You've opted in!**\n\n` +
+          `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
+          `and be included in future scheduling rounds for your group.\n\n` +
+          `You can use /help at any time to see available commands.`,
+          { parse_mode: 'Markdown' }
+        );
+        console.log(`Member opted in: User ${ctx.from.id} for group ${group.name} (${group.telegramId})`);
+      } catch (error) {
+        console.error('Error opting in member:', error);
+        await ctx.reply('❌ An error occurred while opting you in. Please try again.');
+      }
     }
   } else {
     // Standard start handler
@@ -46,18 +59,18 @@ bot.start(async (ctx) => {
 bot.on('new_chat_members', async (ctx) => {
   const newMembers = ctx.message.new_chat_members;
   const botInfo = await ctx.telegram.getMe();
-  
+
   // Check if the bot itself was added
   const botWasAdded = newMembers.some(member => member.id === botInfo.id);
-  
+
   if (botWasAdded) {
     const chat = ctx.chat;
-    
+
     // Only process group chats (not private chats)
     if (chat.type !== 'group' && chat.type !== 'supergroup') {
       return;
     }
-    
+
     try {
       // Create or update group record in database
       const group = await prisma.group.upsert({
@@ -68,9 +81,9 @@ bot.on('new_chat_members', async (ctx) => {
           name: chat.title,
         },
       });
-      
+
       console.log(`Group registered: ${group.name} (ID: ${group.telegramId})`);
-      
+
       // Send welcome message
       await ctx.reply(
         `🎉 Hello! I'm Zins Community Bot, your scheduling assistant.\n\n` +
