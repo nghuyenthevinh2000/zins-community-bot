@@ -1,8 +1,13 @@
 import { Context } from 'telegraf';
 import { DatabaseService } from './database.service';
+import { OpenCodeNLUService } from './opencode-nlu.service';
 
 export class BotHandlers {
-  constructor(private db: DatabaseService) { }
+  private nluService: OpenCodeNLUService;
+
+  constructor(private db: DatabaseService) {
+    this.nluService = new OpenCodeNLUService();
+  }
 
   async handleStart(ctx: Context): Promise<void> {
     const chat = ctx.chat;
@@ -329,9 +334,56 @@ export class BotHandlers {
       return;
     }
 
-    // Parse and store
-    const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+    // Try to parse with OpenCode NLU, with fallback on failure
+    let parsedAvailability: any;
+    let parseError: string | null = null;
+    
+    try {
+      const nluResult = await this.nluService.parseAvailability(messageText);
+      
+      if (nluResult.success && nluResult.parsed) {
+        parsedAvailability = {
+          slots: nluResult.parsed,
+          isVague: nluResult.isVague,
+          source: 'opencode'
+        };
+      } else {
+        // NLU returned but couldn't parse - use fallback
+        parseError = nluResult.error || 'Could not parse availability';
+        parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+        parsedAvailability.source = 'fallback';
+        parsedAvailability.nluError = parseError;
+      }
+    } catch (error) {
+      // API failure - queue for retry (NFR6)
+      console.error('OpenCode API failure:', error);
+      parseError = error instanceof Error ? error.message : 'API unavailable';
+      
+      // Queue the request for retry
+      await this.db.queuePendingNLURequest(
+        member.roundId,
+        userId,
+        messageText,
+        parseError
+      );
+      
+      // Use fallback parser for immediate response
+      parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+      parsedAvailability.source = 'fallback';
+      parsedAvailability.nluError = parseError;
+      parsedAvailability.queuedForRetry = true;
+      
+      // Inform user about the delay
+      await ctx.reply(
+        `⏳ **Processing Delayed**\n\n` +
+        `I couldn't connect to the language processing service right now. ` +
+        `I've saved your response and will process it automatically when the service is back.\n\n` +
+        `For now, here's what I understood using basic parsing:`,
+        { parse_mode: 'Markdown' }
+      );
+    }
 
+    // Store the response
     await this.db.createAvailabilityResponse(
       member.roundId,
       userId,
