@@ -14,6 +14,7 @@ const dbService = new DatabaseService(prisma);
 const handlers = new BotHandlers(dbService);
 
 // Bot command handlers
+bot.command('schedule', (ctx) => handlers.handleSchedule(ctx));
 bot.command('status', (ctx) => handlers.handleStatus(ctx));
 bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
 bot.command('members', (ctx) => handlers.handleMembers(ctx));

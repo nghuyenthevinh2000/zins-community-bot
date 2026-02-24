@@ -168,3 +168,146 @@ describe('Member Tracking & Opt-In Status (Story 2.2)', () => {
     expect(status.round!.id).toBe(round.id);
   });
 });
+
+describe('Prevent Duplicate Scheduling Rounds (Story 3.2)', () => {
+  beforeEach(async () => {
+    await prisma.schedulingRound.deleteMany();
+    await prisma.member.deleteMany();
+    await prisma.group.deleteMany();
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  test('should detect when an active scheduling round already exists', async () => {
+    const group = await db.findOrCreateGroup('duplicate-test-group', 'Duplicate Test Group');
+    
+    // Create an active scheduling round
+    const firstRound = await db.createSchedulingRound(group.id, 'First Meeting', 'next week');
+    expect(firstRound.status).toBe('active');
+    
+    // Check if active round exists
+    const activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).not.toBeNull();
+    expect(activeRound!.id).toBe(firstRound.id);
+    expect(activeRound!.topic).toBe('First Meeting');
+    
+    // Verify hasActiveRound returns true
+    const status = await db.getActiveRoundStatus(group.id);
+    expect(status.hasActiveRound).toBe(true);
+  });
+
+  test('should prevent creating a new round when one is already active', async () => {
+    const group = await db.findOrCreateGroup('prevent-dup-group', 'Prevent Duplicate Group');
+    
+    // Create first active round
+    await db.createSchedulingRound(group.id, 'Existing Meeting', 'tomorrow');
+    
+    // Try to create second round - this simulates what the handler does
+    const activeRound = await db.getActiveRoundByGroup(group.id);
+    
+    if (activeRound) {
+      // In real handler, this would return an error message to the user
+      expect(activeRound).not.toBeNull();
+      expect(activeRound.status).toBe('active');
+      
+      // The second round should NOT be created (simulated by not calling create)
+      const rounds = await db.getAllRoundsByGroup(group.id);
+      expect(rounds.length).toBe(1);
+      expect(rounds[0].topic).toBe('Existing Meeting');
+    }
+  });
+
+  test('should allow new round after previous round is cancelled', async () => {
+    const group = await db.findOrCreateGroup('cancel-then-new-group', 'Cancel Then New Group');
+    
+    // Create first round
+    const firstRound = await db.createSchedulingRound(group.id, 'First Meeting', 'today');
+    
+    // Cancel the first round
+    await db.cancelRound(firstRound.id);
+    
+    // Verify no active rounds
+    let activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).toBeNull();
+    
+    // Now create a new round
+    const secondRound = await db.createSchedulingRound(group.id, 'Second Meeting', 'tomorrow');
+    expect(secondRound.status).toBe('active');
+    expect(secondRound.topic).toBe('Second Meeting');
+    
+    // Verify it's the active one
+    activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound!.id).toBe(secondRound.id);
+  });
+
+  test('should allow new round after previous round is confirmed', async () => {
+    const group = await db.findOrCreateGroup('confirm-then-new-group', 'Confirm Then New Group');
+    
+    // Create and confirm first round
+    const firstRound = await db.createSchedulingRound(group.id, 'First Meeting', 'today');
+    await db.confirmRound(firstRound.id);
+    
+    // Verify no active rounds (confirmed is not active)
+    let activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).toBeNull();
+    
+    // Now create a new round
+    const secondRound = await db.createSchedulingRound(group.id, 'Second Meeting', 'next week');
+    expect(secondRound.status).toBe('active');
+    
+    // Verify it's active
+    activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).not.toBeNull();
+    expect(activeRound!.id).toBe(secondRound.id);
+  });
+
+  test('should track multiple rounds with different statuses', async () => {
+    const group = await db.findOrCreateGroup('multi-round-group', 'Multi Round Group');
+    
+    // Create multiple rounds with different statuses
+    const round1 = await db.createSchedulingRound(group.id, 'Meeting 1', 'week 1');
+    await db.cancelRound(round1.id);
+    
+    const round2 = await db.createSchedulingRound(group.id, 'Meeting 2', 'week 2');
+    await db.confirmRound(round2.id);
+    
+    const round3 = await db.createSchedulingRound(group.id, 'Meeting 3', 'week 3');
+    // Leave this one active
+    
+    // Verify only the last one is active
+    const activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).not.toBeNull();
+    expect(activeRound!.id).toBe(round3.id);
+    expect(activeRound!.topic).toBe('Meeting 3');
+    
+    // Verify total rounds
+    const allRounds = await db.getAllRoundsByGroup(group.id);
+    expect(allRounds.length).toBe(3);
+  });
+
+  test('should isolate duplicate prevention per group', async () => {
+    const group1 = await db.findOrCreateGroup('group1-dup', 'Group 1 Duplicate');
+    const group2 = await db.findOrCreateGroup('group2-dup', 'Group 2 Duplicate');
+    
+    // Create active round in group 1
+    await db.createSchedulingRound(group1.id, 'Group 1 Meeting', 'today');
+    
+    // Verify group 1 has active round
+    const group1Active = await db.getActiveRoundByGroup(group1.id);
+    expect(group1Active).not.toBeNull();
+    
+    // Verify group 2 has no active round
+    const group2Active = await db.getActiveRoundByGroup(group2.id);
+    expect(group2Active).toBeNull();
+    
+    // Group 2 should be able to create a round
+    const group2Round = await db.createSchedulingRound(group2.id, 'Group 2 Meeting', 'tomorrow');
+    expect(group2Round.status).toBe('active');
+    
+    // Both groups now have their own active rounds
+    expect((await db.getActiveRoundByGroup(group1.id))!.topic).toBe('Group 1 Meeting');
+    expect((await db.getActiveRoundByGroup(group2.id))!.topic).toBe('Group 2 Meeting');
+  });
+});

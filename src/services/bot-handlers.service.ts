@@ -89,6 +89,100 @@ export class BotHandlers {
     );
   }
 
+  async handleSchedule(ctx: Context): Promise<void> {
+    const chat = ctx.chat;
+    const user = ctx.from;
+    
+    if (!chat || chat.type === 'private') {
+      await ctx.reply('This command only works in group chats.');
+      return;
+    }
+
+    if (!user) {
+      await ctx.reply('Unable to identify user.');
+      return;
+    }
+
+    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    if (!group) {
+      await ctx.reply('This group is not registered. Use /start to register it.');
+      return;
+    }
+
+    // Check if user is opted-in
+    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
+    if (!isOptedIn) {
+      await ctx.reply(
+        `❌ @${user.username || user.first_name}, you must opt-in first before starting a scheduling round.\n` +
+        `Use the opt-in button or message me directly.`
+      );
+      return;
+    }
+
+    // Check if there's already an active round
+    const activeRound = await this.db.getActiveRoundByGroup(group.id);
+    if (activeRound) {
+      await ctx.reply(
+        `⚠️ There's already an active scheduling round:\n` +
+        `Topic: ${activeRound.topic}\n` +
+        `Timeframe: ${activeRound.timeframe}\n\n` +
+        `Use /cancel to end the current round before starting a new one.`
+      );
+      return;
+    }
+
+    // Parse the command text
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    const parsed = this.parseScheduleCommand(messageText);
+    
+    if (!parsed) {
+      await ctx.reply(
+        `❌ Invalid format. Use:\n` +
+        `/schedule "topic" on timeframe\n\n` +
+        `Example: /schedule "Team standup" on next week`
+      );
+      return;
+    }
+
+    // Create the scheduling round
+    const round = await this.db.createSchedulingRound(group.id, parsed.topic, parsed.timeframe);
+
+    await ctx.reply(
+      `✅ **Scheduling Round Started!**\n\n` +
+      `Topic: ${round.topic}\n` +
+      `Timeframe: ${round.timeframe}\n\n` +
+      `I'll DM all opted-in members to collect their availability.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  private parseScheduleCommand(text: string): { topic: string; timeframe: string } | null {
+    // Match patterns like: /schedule "topic" on timeframe
+    // or: /schedule "topic" for timeframe
+    // or: /schedule topic on timeframe (without quotes)
+    
+    const quotedPattern = /\/schedule\s+["']([^"']+)["']\s+(?:on|for|in)\s+(.+)/i;
+    const unquotedPattern = /\/schedule\s+(\S+)\s+(?:on|for|in)\s+(.+)/i;
+    
+    const quotedMatch = text.match(quotedPattern);
+    if (quotedMatch && quotedMatch[1] && quotedMatch[2]) {
+      return {
+        topic: quotedMatch[1].trim(),
+        timeframe: quotedMatch[2].trim()
+      };
+    }
+    
+    const unquotedMatch = text.match(unquotedPattern);
+    if (unquotedMatch && unquotedMatch[1] && unquotedMatch[2]) {
+      return {
+        topic: unquotedMatch[1].trim(),
+        timeframe: unquotedMatch[2].trim()
+      };
+    }
+    
+    return null;
+  }
+
   async handleMembers(ctx: Context): Promise<void> {
     const chat = ctx.chat;
     if (!chat || chat.type === 'private') {
