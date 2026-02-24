@@ -70,9 +70,9 @@ model AvailabilityResponse {
   round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
   
 
-  @@unique([roundId, userId])
   @@index([roundId])
   @@index([userId])
   @@index([status])
+  @@index([roundId, userId])
   @@map("availability_responses")
 }

@@ -329,9 +329,84 @@ export class BotHandlers {
       return;
     }
 
-    // Parse and store
+    // Parse availability
     const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+    
+    // Story 4.4: Check if response is vague
+    const isVague = this.isVagueResponse(parsedAvailability, messageText);
+    
+    if (isVague) {
+      // Count how many vague responses user has given for this round
+      const vagueCount = await this.db.getVagueResponseCount(userId, member.roundId);
+      
+      // Store the vague response
+      await this.db.createAvailabilityResponse(
+        member.roundId,
+        userId,
+        messageText,
+        parsedAvailability
+      );
+      
+      // Progressive prompting based on vague count
+      if (vagueCount === 0) {
+        // First vague response - gentle prompt
+        await ctx.reply(
+          `🤔 I received: "${messageText}"\n\n` +
+          `To find the best meeting time, I need more specific availability. ` +
+          `Could you please tell me:\n` +
+          `• Which specific days work for you?\n` +
+          `• What times on those days?\n\n` +
+          `For example: "Tuesday after 6pm" or "Wednesday morning"`,
+          { parse_mode: 'Markdown' }
+        );
+      } else if (vagueCount === 1) {
+        // Second vague response - more specific prompt
+        await ctx.reply(
+          `📝 Thanks for your response, but I still need more details.\n\n` +
+          `Please provide:\n` +
+          `• Day of the week (Monday, Tuesday, etc.)\n` +
+          `• Time range (morning, afternoon, evening, or specific hours)\n\n` +
+          `Examples:\n` +
+          `• "I'm free Thursday afternoon"\n` +
+          `• "Friday 2pm-5pm works for me"\n` +
+          `• "Monday or Wednesday evening"`,
+          { parse_mode: 'Markdown' }
+        );
+      } else if (vagueCount === 2) {
+        // Third vague response - final attempt with examples
+        await ctx.reply(
+          `⚠️ I'm having trouble understanding your availability.\n\n` +
+          `To schedule effectively, I need to know:\n` +
+          `1. Which days you're available\n` +
+          `2. What times on those days\n\n` +
+          `Try something like:\n` +
+          `✅ "I'm free Tuesday 6pm-8pm and Thursday 7pm-9pm"\n` +
+          `✅ "Monday afternoon works for me"\n` +
+          `✅ "Friday or Saturday morning"\n\n` +
+          `Please try one more time with specific days and times!`,
+          { parse_mode: 'Markdown' }
+        );
+      } else {
+        // Fourth or more vague responses - accept but warn
+        await ctx.reply(
+          `✅ I've recorded your response: "${messageText}"\n\n` +
+          `⚠️ Note: Your availability wasn't very specific, so it may be harder ` +
+          `to find a time that works for everyone. If you can provide more details ` +
+          `later, just send me a new message!`,
+          { parse_mode: 'Markdown' }
+        );
+        
+        // Mark this vague response as the "final" one
+        await this.db.updateAvailabilityResponseStatus(
+          member.roundId,
+          userId,
+          'confirmed_vague'
+        );
+      }
+      return;
+    }
 
+    // Not vague - store and confirm normally
     await this.db.createAvailabilityResponse(
       member.roundId,
       userId,
@@ -397,6 +472,39 @@ export class BotHandlers {
     interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
 
     await ctx.reply(interpretation, { parse_mode: 'Markdown' });
+  }
+
+  // Story 4.4: Helper method to detect vague responses
+  private isVagueResponse(parsed: any, rawText: string): boolean {
+    // If no days or times were parsed, it's vague
+    const hasNoDays = !parsed.days || parsed.days.length === 0;
+    const hasNoTimes = !parsed.times || parsed.times.length === 0;
+    
+    if (hasNoDays && hasNoTimes) {
+      return true;
+    }
+    
+    // Check for vague terms in the raw text
+    const vagueTerms = [
+      'sometime', 'whenever', 'anytime', 'soon', 'later', 
+      'maybe', 'not sure', 'depends', 'flexible', 'whenever works',
+      'any time', 'all day', 'whole day'
+    ];
+    
+    const lowerText = rawText.toLowerCase();
+    const containsVagueTerm = vagueTerms.some(term => lowerText.includes(term));
+    
+    // If only has days but no times, it's vague
+    if (!hasNoDays && hasNoTimes) {
+      return true;
+    }
+    
+    // If contains vague terms, it's vague
+    if (containsVagueTerm) {
+      return true;
+    }
+    
+    return false;
   }
 
   async handleMembers(ctx: Context): Promise<void> {

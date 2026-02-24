@@ -147,15 +147,9 @@ export class DatabaseService {
     rawResponse: string,
     parsedAvailability: any
   ): Promise<any> {
-    return this.prisma.availabilityResponse.upsert({
-      where: { roundId_userId: { roundId, userId } },
-      update: {
-        rawResponse,
-        parsedAvailability,
-        status: 'pending',
-        confirmedAt: null
-      },
-      create: {
+    // Always create a new response record (for tracking conversation history)
+    return this.prisma.availabilityResponse.create({
+      data: {
         roundId,
         userId,
         rawResponse,
@@ -167,15 +161,25 @@ export class DatabaseService {
 
 
   async confirmAvailabilityResponse(roundId: string, userId: string): Promise<any> {
+    const existing = await this.prisma.availabilityResponse.findFirst({
+      where: { roundId, userId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!existing) {
+      throw new Error('Availability response not found');
+    }
+
     return this.prisma.availabilityResponse.update({
-      where: { roundId_userId: { roundId, userId } },
+      where: { id: existing.id },
       data: { status: 'confirmed', confirmedAt: new Date() }
     });
   }
 
   async getAvailabilityResponse(roundId: string, userId: string): Promise<any | null> {
-    return this.prisma.availabilityResponse.findUnique({
-      where: { roundId_userId: { roundId, userId } }
+    return this.prisma.availabilityResponse.findFirst({
+      where: { roundId, userId },
+      orderBy: { createdAt: 'desc' }
     });
   }
 
@@ -194,14 +198,78 @@ export class DatabaseService {
     rawResponse: string,
     parsedAvailability: any
   ): Promise<any> {
+    const existing = await this.prisma.availabilityResponse.findFirst({
+      where: { roundId, userId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!existing) {
+      throw new Error('Availability response not found');
+    }
+
     return this.prisma.availabilityResponse.update({
-      where: { roundId_userId: { roundId, userId } },
+      where: { id: existing.id },
       data: {
         rawResponse,
         parsedAvailability,
         status: 'pending',
         confirmedAt: null
       }
+    });
+  }
+
+  // Story 4.4: Get count of vague responses for a user in a round
+  async getVagueResponseCount(userId: string, roundId: string): Promise<number> {
+    // Count responses that are "pending" and don't have specific days/times
+    // We use a heuristic: count responses with status 'pending' that were created 
+    // after the first vague response
+    const vagueResponses = await this.prisma.availabilityResponse.findMany({
+      where: { 
+        roundId, 
+        userId,
+        status: 'pending'
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Count consecutive vague responses (responses without proper parsed data)
+    let vagueCount = 0;
+    for (const response of vagueResponses) {
+      const parsed = response.parsedAvailability as any;
+      const hasNoDays = !parsed?.days || parsed.days.length === 0;
+      const hasNoTimes = !parsed?.times || parsed.times.length === 0;
+      
+      // Consider vague if: no days AND no times, OR has days but no times
+      if ((hasNoDays && hasNoTimes) || (!hasNoDays && hasNoTimes)) {
+        vagueCount++;
+      } else if (!hasNoDays && !hasNoTimes) {
+        // Found a specific response with both days and times, stop counting
+        break;
+      }
+      // If it has times but no days, still count as vague (missing day info)
+    }
+
+    return vagueCount;
+  }
+
+  // Story 4.4: Update response status (for accepting vague responses after max retries)
+  async updateAvailabilityResponseStatus(
+    roundId: string,
+    userId: string,
+    status: string
+  ): Promise<any> {
+    const existing = await this.prisma.availabilityResponse.findFirst({
+      where: { roundId, userId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!existing) {
+      throw new Error('Availability response not found');
+    }
+
+    return this.prisma.availabilityResponse.update({
+      where: { id: existing.id },
+      data: { status }
     });
   }
 }
