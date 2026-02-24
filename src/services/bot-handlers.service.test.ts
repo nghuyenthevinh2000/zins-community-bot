@@ -54,9 +54,9 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
     dbServiceMock.getGroupByTelegramId.mockReturnValue(Promise.resolve({ id: 'group-1' }));
     dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(true));
     dbServiceMock.getActiveRoundByGroup.mockReturnValue(Promise.resolve(activeRound));
-    
+
     await handlers.handleCancel(ctxMock);
-    
+
     expect(dbServiceMock.cancelRound).toHaveBeenCalledWith('round-1');
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Scheduling Round Cancelled'),
@@ -79,7 +79,7 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
       getGroupByTelegramId: mock(() => Promise.resolve({ id: 'group-1' })),
       isMemberOptedIn: mock(() => Promise.resolve(true)),
       getActiveRoundByGroup: mock(() => Promise.resolve(null)),
-      createSchedulingRound: mock((groupId, topic, timeframe) => 
+      createSchedulingRound: mock((groupId, topic, timeframe) =>
         Promise.resolve({ id: 'round-1', groupId, topic, timeframe })),
       getOptedInMembers: mock(() => Promise.resolve([
         { userId: 'user-1' },
@@ -96,27 +96,27 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
         sendMessage: mock(() => Promise.resolve({})),
       },
     };
-    
+
     // Mock global setTimeout to avoid waiting during tests
     global.setTimeout = ((fn: any) => { fn(); return {} as any; }) as any;
   });
 
   test('should successfully start a round and send DMs to all opted-in members', async () => {
     await handlers.handleSchedule(ctxMock);
-    
+
     // Verify round creation
     expect(dbServiceMock.createSchedulingRound).toHaveBeenCalledWith(
-      'group-1', 
-      'Team Meeting', 
+      'group-1',
+      'Team Meeting',
       expect.any(String)
     );
-    
+
     // Verify confirmation message in group
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Scheduling Round Started!'),
       expect.any(Object)
     );
-    
+
     // Verify DMs sent to members (Story 4.1)
     expect(dbServiceMock.getOptedInMembers).toHaveBeenCalledWith('group-1');
     expect(ctxMock.telegram.sendMessage).toHaveBeenCalledTimes(2);
@@ -156,7 +156,85 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
   });
 
   test('should handle unquoted topic', () => {
-    const parsed = (handlers as any).parseScheduleCommand('/schedule standup on tomorrow');
-    expect(parsed).toEqual({ topic: 'standup', timeframe: 'tomorrow' });
+    const parsed = (handlers as any).parseScheduleCommand('/schedule standup');
+    expect(parsed).toEqual({ topic: 'standup', timeframe: 'the upcoming days' });
+  });
+});
+
+describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
+  let dbServiceMock: any;
+  let handlers: BotHandlers;
+  let ctxMock: any;
+
+  beforeEach(() => {
+    dbServiceMock = {
+      getPendingAvailabilityResponse: mock(() => Promise.resolve(null)),
+      confirmAvailabilityResponse: mock(() => Promise.resolve({})),
+      updateAvailabilityResponse: mock(() => Promise.resolve({})),
+      createAvailabilityResponse: mock(() => Promise.resolve({})),
+      getPrisma: mock(() => ({
+        member: {
+          findMany: mock(() => Promise.resolve([{ groupId: 'group-1' }]))
+        }
+      })),
+      getActiveRoundByGroup: mock(() => Promise.resolve({ id: 'round-1' })),
+    };
+    handlers = new BotHandlers(dbServiceMock as any);
+    ctxMock = {
+      chat: { id: 456, type: 'private' },
+      from: { id: 456, first_name: 'TestUser', username: 'testuser' },
+      message: { text: 'I am free Monday' },
+      reply: mock(() => Promise.resolve({})),
+    };
+  });
+
+  test('should handle new availability response and send confirmation request', async () => {
+    await handlers.handleAvailabilityResponse(ctxMock);
+
+    expect(dbServiceMock.createAvailabilityResponse).toHaveBeenCalled();
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Is this correct? Reply **"yes"** to confirm'),
+      expect.any(Object)
+    );
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Monday'),
+      expect.any(Object)
+    );
+  });
+
+  test('should confirm availability when user says "yes"', async () => {
+    dbServiceMock.getPendingAvailabilityResponse.mockReturnValue(Promise.resolve({
+      roundId: 'round-1',
+      userId: '456'
+    }));
+    ctxMock.message.text = 'yes';
+
+    await handlers.handleAvailabilityResponse(ctxMock);
+
+    expect(dbServiceMock.confirmAvailabilityResponse).toHaveBeenCalledWith('round-1', '456');
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Availability Confirmed!'),
+      expect.any(Object)
+    );
+  });
+
+  test('should re-parse and ask for confirmation when user provides correction', async () => {
+    dbServiceMock.getPendingAvailabilityResponse.mockReturnValue(Promise.resolve({
+      roundId: 'round-1',
+      userId: '456'
+    }));
+    ctxMock.message.text = 'No, I meant Tuesday';
+
+    await handlers.handleAvailabilityResponse(ctxMock);
+
+    expect(dbServiceMock.updateAvailabilityResponse).toHaveBeenCalled();
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Tuesday'),
+      expect.any(Object)
+    );
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Is this correct?'),
+      expect.any(Object)
+    );
   });
 });

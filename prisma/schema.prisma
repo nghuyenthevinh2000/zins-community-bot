@@ -58,19 +58,21 @@ model SchedulingRound {
 model AvailabilityResponse {
   id                String   @id @default(uuid())
   roundId           String   @map("round_id")
-  memberId          String   @map("member_id")
-  rawText           String   @map("raw_text")
-  parsedStartTime   DateTime? @map("parsed_start_time")
-  parsedEndTime     DateTime? @map("parsed_end_time")
-  isVague           Boolean  @default(false) @map("is_vague")
-  status            String   @default("pending") @map("status")
+
+  userId            String   @map("user_id")
+  rawResponse       String   @map("raw_response")
+  parsedAvailability Json?   @map("parsed_availability")
+  status            String   @default("pending") // pending, confirmed, corrected
+  confirmedAt       DateTime? @map("confirmed_at")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   
   round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
   
+
+  @@unique([roundId, userId])
   @@index([roundId])
-  @@index([memberId])
-  @@index([roundId, memberId])
+  @@index([userId])
+  @@index([status])
   @@map("availability_responses")
 }

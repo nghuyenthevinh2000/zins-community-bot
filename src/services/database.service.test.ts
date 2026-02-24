@@ -329,3 +329,61 @@ describe('Cancel an Active Scheduling Round (Story 3.3)', () => {
     expect(activeRound!.id).toBe(secondRound.id);
   });
 });
+
+describe('Confirm & Correct Availability Interpretation (Story 4.3)', () => {
+  beforeEach(async () => {
+    await prisma.availabilityResponse.deleteMany();
+    await prisma.schedulingRound.deleteMany();
+    await prisma.member.deleteMany();
+    await prisma.group.deleteMany();
+  });
+
+  test('should create and confirm availability response', async () => {
+    const group = await db.findOrCreateGroup('availability-group', 'Availability Group');
+    const round = await db.createSchedulingRound(group.id, 'Lunch', 'today');
+    const userId = 'user-confirm';
+    
+    // Create pending response
+    const raw = 'Free at 12pm';
+    const parsed = { times: ['12pm'] };
+    await db.createAvailabilityResponse(round.id, userId, raw, parsed);
+    
+    // Check pending
+    let pending = await db.getPendingAvailabilityResponse(userId);
+    expect(pending).not.toBeNull();
+    expect(pending.status).toBe('pending');
+    expect(pending.rawResponse).toBe(raw);
+    
+    // Confirm
+    await db.confirmAvailabilityResponse(round.id, userId);
+    
+    // Verify confirmed
+    const response = await db.getAvailabilityResponse(round.id, userId);
+    expect(response.status).toBe('confirmed');
+    expect(response.confirmedAt).not.toBeNull();
+    
+    // No longer pending
+    pending = await db.getPendingAvailabilityResponse(userId);
+    expect(pending).toBeNull();
+  });
+
+  test('should update existing response during correction', async () => {
+    const group = await db.findOrCreateGroup('update-group', 'Update Group');
+    const round = await db.createSchedulingRound(group.id, 'Dinner', 'tonight');
+    const userId = 'user-update';
+    
+    // Create initial response
+    await db.createAvailabilityResponse(round.id, userId, 'Free at 6pm', { times: ['6pm'] });
+    
+    // Update (correct)
+    const newRaw = 'Actually 7pm';
+    const newParsed = { times: ['7pm'] };
+    await db.updateAvailabilityResponse(round.id, userId, newRaw, newParsed);
+    
+    // Verify updated and still pending
+    const response = await db.getAvailabilityResponse(round.id, userId);
+    expect(response.rawResponse).toBe(newRaw);
+    expect(response.status).toBe('pending');
+    expect(response.confirmedAt).toBeNull();
+  });
+});
