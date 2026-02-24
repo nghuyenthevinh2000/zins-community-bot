@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "latest",
-    "@prisma/client": "^6",
+    "@prisma/client": "^6.0.0",
     "dotenv": "latest",
     "node-cron": "latest",
     "pg": "latest",
@@ -23,7 +23,7 @@
     "@types/bun": "latest",
     "@types/node-cron": "latest",
     "@types/pg": "latest",
-    "prisma": "^6",
+    "prisma": "^6.0.0",
     "typescript": "^5.0.0"
   }
 }
