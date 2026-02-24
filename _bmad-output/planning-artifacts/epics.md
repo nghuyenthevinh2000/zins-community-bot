@@ -187,7 +187,22 @@ So that one group's scheduling never interferes with another.
 **Then** Group B shows no active round when `/status` is called
 **And** all database queries are scoped to the requesting group's ID
 
+### Story 1.4: Help Command
+
+As an **opted-in member**,
+I want to type `/help` and see a list of all available commands,
+So that I can quickly discover what the bot can do.
+
+**Acceptance Criteria:**
+
+**Given** the bot is running in any chat (group or DM)
+**When** a user sends `/help`
+**Then** the bot replies with a formatted list of all commands and their descriptions
+**And** the list includes: `/schedule`, `/cancel`, `/status`, `/settings`, `/optin`, `/help`
+**And** each command includes a brief one-line description of what it does
+
 ## Epic 2: Group Onboarding & Member Management
+
 
 Members can opt-in to the bot and be tracked per group.
 
