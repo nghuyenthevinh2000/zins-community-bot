@@ -36,6 +36,7 @@ bot.command('status', (ctx) => handlers.handleStatus(ctx));
 bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
 bot.command('members', (ctx) => handlers.handleMembers(ctx));
 bot.command('settings', (ctx) => handlers.handleSettings(ctx));
+bot.command('help', (ctx) => handlers.handleHelp(ctx));
 
 // Handle availability responses in DMs
 bot.on('message', async (ctx) => {

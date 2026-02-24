@@ -657,6 +657,32 @@ export class BotHandlers {
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
 
+  async handleHelp(ctx: Context): Promise<void> {
+    const helpMessage = `🤖 **Zins Community Bot - Help**\n\n` +
+      `I help groups find the best times to meet. Here are all available commands:\n\n` +
+      `**Group Commands:**\n` +
+      `/start - Register this group and see welcome message\n` +
+      `/schedule <topic> - Start a new scheduling round\n` +
+      `/cancel - Cancel the active scheduling round\n` +
+      `/status - Check current scheduling round status\n` +
+      `/members - List opted-in and not opted-in members\n` +
+      `/settings - View and modify group settings\n\n` +
+      `**Private Chat Commands:**\n` +
+      `/help - Show this help message\n` +
+      `/optin - Opt-in to receive scheduling DMs\n\n` +
+      `**How it works:**\n` +
+      `1️⃣ Add me to your group\n` +
+      `2️⃣ Use /start in the group\n` +
+      `3️⃣ Members opt-in by messaging me\n` +
+      `4️⃣ Start scheduling with /schedule\n` +
+      `5️⃣ I'll DM members for availability\n` +
+      `6️⃣ We find the best time to meet!\n\n` +
+      `Need help? Just ask!`;
+
+    await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+  }
+}
+
   // Story 5.2: Handle /settings command
   async handleSettings(ctx: Context): Promise<void> {
     const chat = ctx.chat;
