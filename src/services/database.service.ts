@@ -60,6 +60,25 @@ export class DatabaseService {
     return member?.optedIn ?? false;
   }
 
+  async getOptedInMemberCount(groupId: string): Promise<number> {
+    return this.prisma.member.count({
+      where: { groupId, optedIn: true }
+    });
+  }
+
+  async getAllMembersWithOptInStatus(groupId: string): Promise<{ optedIn: Member[]; notOptedIn: Member[] }> {
+    const [optedIn, notOptedIn] = await Promise.all([
+      this.prisma.member.findMany({
+        where: { groupId, optedIn: true }
+      }),
+      this.prisma.member.findMany({
+        where: { groupId, optedIn: false }
+      })
+    ]);
+
+    return { optedIn, notOptedIn };
+  }
+
   // Scheduling rounds - always scoped by group
   async createSchedulingRound(
     groupId: string,
