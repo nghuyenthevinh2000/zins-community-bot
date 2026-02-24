@@ -6,3 +6,13 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+model Group {
+  id          String   @id @default(uuid())
+  telegramId  String   @unique @map("telegram_id")
+  name        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("groups")
+}

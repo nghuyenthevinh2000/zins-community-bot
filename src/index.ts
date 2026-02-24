@@ -1,8 +1,5 @@
 import { Telegraf } from 'telegraf';
-import * as dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
-
-dotenv.config();
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -13,6 +10,83 @@ const bot = new Telegraf(token || 'dummy_token');
 const prisma = new PrismaClient();
 
 bot.start((ctx) => ctx.reply('Welcome! Zins Community Bot is running.'));
+
+// Handle when bot is added to a group
+bot.on('new_chat_members', async (ctx) => {
+  const newMembers = ctx.message.new_chat_members;
+  const botInfo = await ctx.telegram.getMe();
+  
+  // Check if the bot itself was added
+  const botWasAdded = newMembers.some(member => member.id === botInfo.id);
+  
+  if (botWasAdded) {
+    const chat = ctx.chat;
+    
+    // Only process group chats (not private chats)
+    if (chat.type !== 'group' && chat.type !== 'supergroup') {
+      return;
+    }
+    
+    try {
+      // Create or update group record in database
+      const group = await prisma.group.upsert({
+        where: { telegramId: String(chat.id) },
+        update: { name: chat.title },
+        create: {
+          telegramId: String(chat.id),
+          name: chat.title,
+        },
+      });
+      
+      console.log(`Group registered: ${group.name} (ID: ${group.telegramId})`);
+      
+      // Send welcome message
+      await ctx.reply(
+        `🎉 Hello! I'm Zins Community Bot, your scheduling assistant.\n\n` +
+        `I'll help your group find the best times to meet. Here's how it works:\n\n` +
+        `1️⃣ **Opt-in**: Each member needs to send me a direct message or click the button below to opt-in\n` +
+        `2️⃣ **Schedule**: Any opted-in member can start a scheduling round with /schedule\n` +
+        `3️⃣ **Respond**: I'll DM each member to collect availability\n` +
+        `4️⃣ **Confirm**: Once we reach consensus, I'll announce the meeting time\n\n` +
+        `Ready to get started? Click the button below to opt-in!`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Opt-in to Scheduling', url: `https://t.me/${botInfo.username}?start=optin_${chat.id}` }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error registering group:', error);
+      await ctx.reply('❌ Sorry, there was an error setting up the bot for this group. Please try removing and re-adding me.');
+    }
+  }
+});
+
+// Handle deep link for opt-in
+bot.command('start', async (ctx) => {
+  const payload = ctx.payload;
+  
+  if (payload.startsWith('optin_')) {
+    const groupId = payload.replace('optin_', '');
+    
+    // Check if this is a private chat (DM)
+    if (ctx.chat.type === 'private') {
+      await ctx.reply(
+        `✅ **You've opted in!**\n\n` +
+        `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
+        `and be included in future scheduling rounds for your group.\n\n` +
+        `You can use /help at any time to see available commands.`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`Member opted in: User ${ctx.from.id} for group ${groupId}`);
+    }
+  } else {
+    ctx.reply('Welcome! Zins Community Bot is running.');
+  }
+});
 
 // Basic webhook setup test
 if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_DOMAIN) {
