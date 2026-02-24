@@ -2,6 +2,16 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { BotHandlers } from './bot-handlers.service';
 import { DatabaseService } from './database.service';
 
+// Mock the entire OpenCodeNLUService class
+mock.module('./opencode-nlu.service', () => {
+  return {
+    OpenCodeNLUService: class {
+      parseAvailability = mock(() => Promise.resolve({ success: true, parsed: [], isVague: false }));
+      close = mock(() => Promise.resolve());
+    }
+  };
+});
+
 describe('BotHandlers.handleCancel (Story 3.3)', () => {
   let dbServiceMock: any;
   let handlers: BotHandlers;
@@ -234,6 +244,33 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Is this correct?'),
+      expect.any(Object)
+    );
+  });
+
+  test('should queue request and inform user when OpenCode API fails (Story 4.5)', async () => {
+    // Mock nluService.parseAvailability to throw an error
+    (handlers as any).nluService.parseAvailability = mock(() => Promise.reject(new Error('API Unavailable')));
+    
+    // Add required db method for this test
+    dbServiceMock.queuePendingNLURequest = mock(() => Promise.resolve({}));
+    
+    await handlers.handleAvailabilityResponse(ctxMock);
+
+    expect(dbServiceMock.queuePendingNLURequest).toHaveBeenCalledWith(
+      'round-1',
+      '456',
+      'I am free Monday',
+      'API Unavailable'
+    );
+    
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Processing Delayed'),
+      expect.any(Object)
+    );
+    
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('I understood:'),
       expect.any(Object)
     );
   });
