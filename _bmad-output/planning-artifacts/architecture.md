@@ -18,27 +18,27 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Requirements Overview
 
 **Functional Requirements:**
-31 FRs across 8 capability areas. Core architectural challenge: orchestrating a multi-step, event-driven scheduling workflow across two external APIs (Telegram, Gemini) with stateful persistence and real-time incremental consensus.
+31 FRs across 8 capability areas. Core architectural challenge: orchestrating a multi-step, event-driven scheduling workflow across two external APIs (Telegram, OpenCode) with stateful persistence and real-time incremental consensus.
 
 **Non-Functional Requirements:**
-12 NFRs emphasizing performance (3s command ack, 5s NLU parse), reliability (survive restarts, Gemini failure recovery), integration (Telegram rate limits, webhook retry), and scalability (10+ concurrent groups).
+12 NFRs emphasizing performance (3s command ack, 5s NLU parse), reliability (survive restarts, OpenCode failure recovery), integration (Telegram rate limits, webhook retry), and scalability (10+ concurrent groups).
 
 **Scale & Complexity:**
 
 - Primary domain: Event-driven API backend
 - Complexity level: Low-Medium
-- Estimated architectural components: 6-8 (Telegram adapter, Gemini NLU service, scheduling workflow engine, consensus calculator, nudging scheduler, data persistence layer, settings manager)
+- Estimated architectural components: 6-8 (Telegram adapter, OpenCode NLU service, scheduling workflow engine, consensus calculator, nudging scheduler, data persistence layer, settings manager)
 
 ### Technical Constraints & Dependencies
 
 - Telegram Bot API: webhook-based, rate-limited (30 msg/s global, 1 msg/s per chat)
-- Google Gemini API: OAuth-based, external dependency for NLU
+- Google OpenCode API: OAuth-based, external dependency for NLU
 - PostgreSQL: persistence layer for all state
 - No web UI — all interaction through Telegram
 
 ### Cross-Cutting Concerns Identified
 
-- **Error handling & resilience**: Graceful degradation when Gemini or Telegram APIs are unavailable
+- **Error handling & resilience**: Graceful degradation when OpenCode or Telegram APIs are unavailable
 - **Rate limiting**: Telegram message staggering across multiple groups
 - **State management**: Scheduling round state must survive restarts; no in-memory-only state
 - **Observability**: Tracking scheduling round progress, API call success/failure rates
@@ -69,7 +69,7 @@ npx prisma init
 |---|---|
 | **Runtime** | Bun (built-in TypeScript, faster startup, built-in test runner) |
 | **Bot Framework** | Telegraf v4.16.3 (Telegram Bot API 7.1) |
-| **AI/NLU** | `@google/generative-ai` (Gemini SDK) |
+| **AI/NLU** | `@google/generative-ai` (OpenCode SDK) |
 | **Database** | PostgreSQL via Prisma ORM (type-safe queries, migrations) |
 | **Scheduling** | `node-cron` for nudging timers |
 | **Config** | `dotenv` for environment variables |
@@ -103,7 +103,7 @@ All resolved — runtime, framework, database, AI integration, containerization
 | Decision | Choice | Rationale |
 |---|---|---|
 | **Telegram auth** | BotFather token via `BOT_TOKEN` env var | Standard Telegram Bot API auth |
-| **Gemini auth** | API key via `GEMINI_API_KEY` env var | Simplest for MVP; migrate to service account if quotas limit |
+| **OpenCode auth** | API key via `OPENCODE_API_KEY` env var | Simplest for MVP; migrate to service account if quotas limit |
 | **Secrets management** | `.env` file (dev), Docker env vars (prod) | Standard 12-factor app approach |
 
 ### API & Communication Patterns
@@ -112,7 +112,7 @@ All resolved — runtime, framework, database, AI integration, containerization
 |---|---|---|
 | **Bot transport** | Webhook (all environments) | Consistent behavior; lower latency; production-ready from day one |
 | **Local dev tunnel** | ngrok or cloudflared | Required to expose local webhook endpoint to Telegram |
-| **Error handling** | Structured error types + Gemini retry queue | Graceful degradation on API failures |
+| **Error handling** | Structured error types + OpenCode retry queue | Graceful degradation on API failures |
 | **Rate limiting** | Telegram message staggering (1 msg/s per chat) | Built into message dispatch layer |
 
 ### Infrastructure & Deployment
@@ -135,7 +135,7 @@ All resolved — runtime, framework, database, AI integration, containerization
 | **Functions** | camelCase | `calculateConsensus()`, `sendNudge()` |
 | **Variables** | camelCase | `consensusThreshold`, `pendingMembers` |
 | **Types/Interfaces** | PascalCase | `SchedulingRound`, `AvailabilitySlot` |
-| **Env vars** | SCREAMING_SNAKE_CASE | `BOT_TOKEN`, `GEMINI_API_KEY` |
+| **Env vars** | SCREAMING_SNAKE_CASE | `BOT_TOKEN`, `OPENCODE_API_KEY` |
 
 ### Structure Patterns
 
@@ -160,7 +160,7 @@ All resolved — runtime, framework, database, AI integration, containerization
 | Area | Convention |
 |---|---|
 | **Error handling** | Try/catch at service boundaries; log + graceful fallback |
-| **Gemini failures** | Queue unparsed response, retry with exponential backoff |
+| **OpenCode failures** | Queue unparsed response, retry with exponential backoff |
 | **Telegram failures** | Log + skip, continue with remaining members |
 
 ### Enforcement Guidelines
@@ -210,7 +210,7 @@ zins-community-bot/
     │   ├── availability-service.ts # Availability collection & tracking
     │   ├── consensus-service.ts    # Incremental consensus calculation
     │   ├── nudging-service.ts      # Non-responder follow-up scheduler
-    │   ├── gemini-service.ts       # Gemini NLU integration
+    │   ├── opencode-service.ts       # OpenCode NLU integration
     │   └── notification-service.ts # Group announcements & reminders
     ├── db/
     │   ├── client.ts               # Prisma client singleton
@@ -233,7 +233,7 @@ zins-community-bot/
 |---|---|---|
 | **FR1-4: Onboarding** | `src/bot/handlers/` | `opt-in-handler.ts` |
 | **FR5-8: Scheduling** | `src/bot/commands/` | `schedule.ts`, `cancel.ts` |
-| **FR9-14: Availability** | `src/services/` | `availability-service.ts`, `gemini-service.ts` |
+| **FR9-14: Availability** | `src/services/` | `availability-service.ts`, `opencode-service.ts` |
 | **FR15-17: Nudging** | `src/services/` | `nudging-service.ts` |
 | **FR18-21: Consensus** | `src/services/` | `consensus-service.ts` |
 | **FR22-24: Confirmation** | `src/services/` | `notification-service.ts` |
@@ -246,14 +246,14 @@ zins-community-bot/
 - **Bot layer** (`src/bot/`) → Only handles Telegram I/O; delegates to services
 - **Service layer** (`src/services/`) → Business logic; no direct Telegram API calls
 - **Data layer** (`src/db/`) → All database access via Prisma; no business logic
-- **External APIs** → Gemini isolated in `gemini-service.ts`; Telegram isolated in bot layer
+- **External APIs** → OpenCode isolated in `opencode-service.ts`; Telegram isolated in bot layer
 
 ### Data Flow
 
 ```
 Telegram Webhook → bot/commands/* → services/* → db/* → PostgreSQL
                                    ↓
-                              gemini-service.ts → Gemini API
+                              opencode-service.ts → OpenCode API
                                    ↓
                           notification-service.ts → Telegram (announcements)
 ```
@@ -262,7 +262,7 @@ Telegram Webhook → bot/commands/* → services/* → db/* → PostgreSQL
 
 ### Coherence Validation ✅
 
-**Decision Compatibility:** All technology choices (Bun + Telegraf + Prisma + PostgreSQL + Gemini SDK) are compatible and work together without conflicts.
+**Decision Compatibility:** All technology choices (Bun + Telegraf + Prisma + PostgreSQL + OpenCode SDK) are compatible and work together without conflicts.
 
 **Pattern Consistency:** Naming conventions (snake_case DB, camelCase code, kebab-case files) align with TypeScript/Prisma ecosystem standards.
 

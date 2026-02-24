@@ -20,13 +20,13 @@ classification:
 
 ## Executive Summary
 
-**zins-community-bot** is an AI-powered Telegram bot platform that eliminates coordination friction in small social community groups (3–10 members). The platform uses Google Gemini for natural language understanding, enabling conversational interactions where members respond naturally (e.g., "I'm free Tuesday afternoon") rather than tapping rigid poll options. The flagship feature — fault-tolerant meeting scheduling — applies a majority-consensus algorithm (≥75% agreement) to guarantee meetings happen even when not all members are available, breaking the death spiral of failed coordination → demotivation → disengagement that plagues busy community groups.
+**zins-community-bot** is an AI-powered Telegram bot platform that eliminates coordination friction in small social community groups (3–10 members). The platform uses Google OpenCode for natural language understanding, enabling conversational interactions where members respond naturally (e.g., "I'm free Tuesday afternoon") rather than tapping rigid poll options. The flagship feature — fault-tolerant meeting scheduling — applies a majority-consensus algorithm (≥75% agreement) to guarantee meetings happen even when not all members are available, breaking the death spiral of failed coordination → demotivation → disengagement that plagues busy community groups.
 
 The bot operates entirely through private DMs to collect availability, keeping group chat clean and dramatically improving response rates. It handles nudging, consensus calculation, and meeting announcements autonomously — delivering zero manual follow-ups for group organizers. The platform is architected as an extensible tool suite, with meeting scheduling as the first module and additional community engagement tools planned for future releases.
 
 ### What Makes This Special
 
-The core insight is that traditional scheduling tools enforce absolute consensus — everyone must agree, or the meeting doesn't happen. This model breaks down with more than two people, especially among busy professionals with unpredictable schedules. **zins-community-bot** flips this by tolerating minority absence: if ≥75% of members converge on a time, the meeting is confirmed. Combined with AI-powered natural language understanding (Gemini) and proactive consensus-pushing via private DMs, the bot replaces the human organizer's chase-and-nag loop entirely. One-liner: **"Stop chasing people — let AI handle it."**
+The core insight is that traditional scheduling tools enforce absolute consensus — everyone must agree, or the meeting doesn't happen. This model breaks down with more than two people, especially among busy professionals with unpredictable schedules. **zins-community-bot** flips this by tolerating minority absence: if ≥75% of members converge on a time, the meeting is confirmed. Combined with AI-powered natural language understanding (OpenCode) and proactive consensus-pushing via private DMs, the bot replaces the human organizer's chase-and-nag loop entirely. One-liner: **"Stop chasing people — let AI handle it."**
 
 ## Project Classification
 
@@ -36,7 +36,7 @@ The core insight is that traditional scheduling tools enforce absolute consensus
 | **Domain** | General (community/social coordination) |
 | **Complexity** | Low |
 | **Project Context** | Greenfield (new build from scratch) |
-| **AI Integration** | Google Gemini via OAuth for NLU |
+| **AI Integration** | Google OpenCode via OAuth for NLU |
 | **Platform** | Telegram Bot API |
 
 ## Success Criteria
@@ -45,7 +45,7 @@ The core insight is that traditional scheduling tools enforce absolute consensus
 
 - **100% meeting materialization rate**: Every scheduling request results in a confirmed meeting, guaranteed by the fault-tolerant ≥75% consensus model
 - **Zero manual follow-ups**: The organizer never chases members — the bot handles all collection, nudging, and announcements
-- **Structured availability extraction**: Gemini pushes members to provide specific date + time ranges (e.g., "I am free on Sunday from 5pm to 10pm") via natural conversation
+- **Structured availability extraction**: OpenCode pushes members to provide specific date + time ranges (e.g., "I am free on Sunday from 5pm to 10pm") via natural conversation
 - **Consensus retry**: If initial availability doesn't yield ≥75% overlap, the bot proactively requests alternative times from members until consensus is achieved
 - **Frictionless member experience**: Members respond conversationally in natural language; the bot interprets and confirms understanding
 
@@ -55,7 +55,7 @@ N/A — personal community tool at this stage. Success = the organizer's communi
 
 ### Technical Success
 
-- **Gemini NLU accuracy**: Bot correctly parses natural language time expressions on the first interpretation attempt
+- **OpenCode NLU accuracy**: Bot correctly parses natural language time expressions on the first interpretation attempt
 - **Bot reliability**: Bot is available and responsive during active scheduling rounds
 - **Response acknowledgment**: Bot acknowledges member replies within seconds
 - **Consensus calculation correctness**: Algorithm correctly identifies optimal time slots from collected availability data
@@ -116,8 +116,8 @@ N/A — personal community tool at this stage. Success = the organizer's communi
 | Journey | Capabilities Revealed |
 |---|---|
 | **Organizer** | `/schedule "topic" on timeframe` command with topic parameter, automated DM dispatch, progress tracking, group announcement, zero-intervention workflow |
-| **Group Member** | Private DM interaction, natural language parsing (Gemini), availability confirmation, frictionless response flow |
-| **Non-Responder** | Automated nudging, conversational follow-up, Gemini-powered clarifying questions, fault-tolerant scheduling (minority exclusion doesn't block) |
+| **Group Member** | Private DM interaction, natural language parsing (OpenCode), availability confirmation, frictionless response flow |
+| **Non-Responder** | Automated nudging, conversational follow-up, OpenCode-powered clarifying questions, fault-tolerant scheduling (minority exclusion doesn't block) |
 
 ## Innovation & Novel Patterns
 
@@ -125,13 +125,13 @@ N/A — personal community tool at this stage. Success = the organizer's communi
 
 1. **Fault-Tolerant Majority Consensus** — Traditional scheduling tools require 100% agreement, which fails at scale. zins-community-bot introduces a configurable consensus threshold (default ≥75%) that guarantees meetings happen by tolerating minority absence. This fundamentally changes the scheduling paradigm from "everyone must agree" to "most agree, let's go."
 
-2. **AI-Driven Conversational Scheduling** — Instead of rigid polls or forms, the bot uses Google Gemini NLU to have natural DM conversations with members, actively pushing for specific date + time ranges and clarifying vague responses. The bot isn't a passive data collector — it's a conversational agent that negotiates.
+2. **AI-Driven Conversational Scheduling** — Instead of rigid polls or forms, the bot uses Google OpenCode NLU to have natural DM conversations with members, actively pushing for specific date + time ranges and clarifying vague responses. The bot isn't a passive data collector — it's a conversational agent that negotiates.
 
 ### Validation Approach
 
 - **Configurable consensus threshold**: The ≥75% default is experimental. The threshold will be adjustable per group, allowing organizers to tune it based on group dynamics (smaller groups may need higher thresholds; larger groups may tolerate lower)
 - **Iterative learning**: Real-world usage will validate whether the default threshold produces satisfying outcomes for both organizers and members
-- **Gemini NLU quality**: Validated through real conversational interactions; edge cases will surface naturally during early use
+- **OpenCode NLU quality**: Validated through real conversational interactions; edge cases will surface naturally during early use
 
 ### Risk Mitigation
 
@@ -141,7 +141,7 @@ See consolidated risk table in [Product Scope](#product-scope).
 
 ### Project-Type Overview
 
-zins-community-bot is a Telegram Bot API backend service. It processes incoming messages/commands via webhook or long-polling, orchestrates conversational DM flows through Google Gemini, and persists scheduling state in PostgreSQL. The system supports multiple groups simultaneously.
+zins-community-bot is a Telegram Bot API backend service. It processes incoming messages/commands via webhook or long-polling, orchestrates conversational DM flows through Google OpenCode, and persists scheduling state in PostgreSQL. The system supports multiple groups simultaneously.
 
 ### Bot Command Specification
 
@@ -157,7 +157,7 @@ No role-based access control — all opted-in members have equal permissions.
 ### Authentication & Integration
 
 - **Telegram Bot API**: Standard BotFather token-based authentication
-- **Google Gemini API**: OAuth-based integration for natural language understanding
+- **Google OpenCode API**: OAuth-based integration for natural language understanding
 - **No external web API exposed** — all interaction is via Telegram bot interface
 
 ### Data Architecture (PostgreSQL)
@@ -178,9 +178,9 @@ No role-based access control — all opted-in members have equal permissions.
 ### Implementation Considerations
 
 - **Webhook vs Long-Polling**: Webhook preferred for production (lower latency, scalable)
-- **Gemini API calls**: Each member DM response triggers a Gemini NLU call for parsing
+- **OpenCode API calls**: Each member DM response triggers a OpenCode NLU call for parsing
 - **Concurrency**: Multiple scheduling rounds across different groups run in parallel
-- **Error handling**: Graceful degradation if Gemini API is temporarily unavailable
+- **Error handling**: Graceful degradation if OpenCode API is temporarily unavailable
 
 ## Product Scope
 
@@ -188,7 +188,7 @@ No role-based access control — all opted-in members have equal permissions.
 
 **MVP Approach:** Problem-Solving MVP — deliver the minimum needed to prove that AI-powered fault-tolerant scheduling eliminates coordination friction for community groups.
 
-**Resource Requirements:** Solo developer with access to Telegram Bot API and Google Gemini API. PostgreSQL database for persistence.
+**Resource Requirements:** Solo developer with access to Telegram Bot API and Google OpenCode API. PostgreSQL database for persistence.
 
 ### MVP Feature Set (Phase 1)
 
@@ -200,7 +200,7 @@ No role-based access control — all opted-in members have equal permissions.
 **Must-Have Capabilities:**
 1. Bot onboarding & member opt-in (DM access gate)
 2. `/schedule "topic" on timeframe` command
-3. Gemini-powered DM conversations for availability collection
+3. OpenCode-powered DM conversations for availability collection
 4. Natural language time parsing with confirmation
 5. Automated nudging for non-responders
 6. Consensus retry loop (request alternative times on failure)
@@ -228,7 +228,7 @@ No role-based access control — all opted-in members have equal permissions.
 
 | Risk Area | Risk | Mitigation |
 |---|---|---|
-| **Technical** | Gemini misparses time expressions | Bot confirms interpretation; user corrects if wrong |
+| **Technical** | OpenCode misparses time expressions | Bot confirms interpretation; user corrects if wrong |
 | **Technical** | Telegram API rate limits on bulk DMs | Stagger DM sends; respect rate limits per Telegram docs |
 | **Technical** | Consensus threshold too low/high | Configurable per group; retry loop for alternative times |
 | **Market** | Members ignore bot DMs (same as polls) | Private DM > group noise; nudging system increases response rates |
@@ -254,7 +254,7 @@ No role-based access control — all opted-in members have equal permissions.
 
 - **FR9:** The bot can send private DMs to each opted-in member requesting availability for a specific topic
 - **FR10:** Members can respond to the bot's DM in natural language (e.g., "I'm free Tuesday after 6pm")
-- **FR11:** The bot can parse natural language time expressions into structured date + time ranges using Gemini NLU
+- **FR11:** The bot can parse natural language time expressions into structured date + time ranges using OpenCode NLU
 - **FR12:** The bot can push members to provide specific date + time ranges if their response is vague
 - **FR13:** The bot can confirm its interpretation of a member's availability back to them
 - **FR14:** Members can correct the bot's interpretation if it was wrong
@@ -300,20 +300,20 @@ No role-based access control — all opted-in members have equal permissions.
 
 - **NFR1:** Bot acknowledges commands (e.g., `/schedule`) in group chat within 3 seconds
 - **NFR2:** Bot sends DMs to all opted-in members within 30 seconds of scheduling initiation
-- **NFR3:** Gemini NLU parses and confirms member availability responses within 5 seconds
+- **NFR3:** OpenCode NLU parses and confirms member availability responses within 5 seconds
 - **NFR4:** Consensus is recalculated incrementally after each new availability response; as soon as any time slot meets the threshold, the meeting is immediately confirmed and announced — regardless of members who haven't yet responded
 
 ### Reliability
 
 - **NFR5:** Active scheduling rounds survive bot restarts — round state persisted in PostgreSQL, not in-memory
-- **NFR6:** Bot recovers gracefully from Gemini API outages — queues unparsed responses and retries when API returns
+- **NFR6:** Bot recovers gracefully from OpenCode API outages — queues unparsed responses and retries when API returns
 - **NFR7:** No data loss on scheduling rounds or availability responses
 
 ### Integration
 
 - **NFR8:** Bot operates within Telegram Bot API rate limits (30 messages/second globally, 1 message/second per chat)
 - **NFR9:** Bot handles Telegram API webhook delivery failures with retry logic
-- **NFR10:** Gemini API integration handles token expiration and automatic re-authentication
+- **NFR10:** OpenCode API integration handles token expiration and automatic re-authentication
 
 ### Scalability
 

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "latest",
+    "@opencode-ai/sdk": "^1.2.10",
     "@prisma/client": "^6",
     "dotenv": "latest",
     "node-cron": "latest",

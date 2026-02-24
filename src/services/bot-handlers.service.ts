@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { DatabaseService } from './database.service';
 
 export class BotHandlers {
-  constructor(private db: DatabaseService) {}
+  constructor(private db: DatabaseService) { }
 
   async handleStart(ctx: Context): Promise<void> {
     const chat = ctx.chat;
@@ -49,7 +49,6 @@ export class BotHandlers {
     await ctx.reply(
       `📅 Active Scheduling Round\n\n` +
       `Topic: ${round.topic}\n` +
-      `Timeframe: ${round.timeframe}\n` +
       `Started: ${round.createdAt.toLocaleDateString()}\n` +
       `Opted-in members: ${status.optedInCount}`
     );
@@ -61,7 +60,7 @@ export class BotHandlers {
 
     // Check if this is a DM or group chat
     const chat = ctx.chat;
-    
+
     if (chat?.type === 'private') {
       // User messaged bot directly - they need to specify which group
       await ctx.reply(
@@ -92,7 +91,7 @@ export class BotHandlers {
   async handleSchedule(ctx: Context): Promise<void> {
     const chat = ctx.chat;
     const user = ctx.from;
-    
+
     if (!chat || chat.type === 'private') {
       await ctx.reply('This command only works in group chats.');
       return;
@@ -124,8 +123,7 @@ export class BotHandlers {
     if (activeRound) {
       await ctx.reply(
         `⚠️ There's already an active scheduling round:\n` +
-        `Topic: ${activeRound.topic}\n` +
-        `Timeframe: ${activeRound.timeframe}\n\n` +
+        `Topic: ${activeRound.topic}\n\n` +
         `Use /cancel to end the current round before starting a new one.`
       );
       return;
@@ -134,12 +132,12 @@ export class BotHandlers {
     // Parse the command text
     const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
     const parsed = this.parseScheduleCommand(messageText);
-    
+
     if (!parsed) {
       await ctx.reply(
         `❌ Invalid format. Use:\n` +
-        `/schedule "topic" on timeframe\n\n` +
-        `Example: /schedule "Team standup" on next week`
+        `/schedule "topic"\n\n` +
+        `Example: /schedule "Team standup"`
       );
       return;
     }
@@ -149,44 +147,35 @@ export class BotHandlers {
 
     await ctx.reply(
       `✅ **Scheduling Round Started!**\n\n` +
-      `Topic: ${round.topic}\n` +
-      `Timeframe: ${round.timeframe}\n\n` +
+      `Topic: ${round.topic}\n\n` +
       `I'll DM all opted-in members to collect their availability.`,
       { parse_mode: 'Markdown' }
     );
   }
 
   private parseScheduleCommand(text: string): { topic: string; timeframe: string } | null {
-    // Match patterns like: /schedule "topic" on timeframe
-    // or: /schedule "topic" for timeframe
-    // or: /schedule topic on timeframe (without quotes)
-    
-    const quotedPattern = /\/schedule\s+["']([^"']+)["']\s+(?:on|for|in)\s+(.+)/i;
-    const unquotedPattern = /\/schedule\s+(\S+)\s+(?:on|for|in)\s+(.+)/i;
-    
-    const quotedMatch = text.match(quotedPattern);
-    if (quotedMatch && quotedMatch[1] && quotedMatch[2]) {
+    const match = text.match(/^\/schedule\s+(.+)$/i);
+    if (match && match[1]) {
+      let topic = match[1].trim();
+
+      // Remove surrounding quotes if they exist
+      if ((topic.startsWith('"') && topic.endsWith('"')) || (topic.startsWith("'") && topic.endsWith("'"))) {
+        topic = topic.slice(1, -1);
+      }
+
       return {
-        topic: quotedMatch[1].trim(),
-        timeframe: quotedMatch[2].trim()
+        topic,
+        timeframe: 'TBD' // Default timeframe since user no longer requires it
       };
     }
-    
-    const unquotedMatch = text.match(unquotedPattern);
-    if (unquotedMatch && unquotedMatch[1] && unquotedMatch[2]) {
-      return {
-        topic: unquotedMatch[1].trim(),
-        timeframe: unquotedMatch[2].trim()
-      };
-    }
-    
+
     return null;
   }
 
   async handleCancel(ctx: Context): Promise<void> {
     const chat = ctx.chat;
     const user = ctx.from;
-    
+
     if (!chat || chat.type === 'private') {
       await ctx.reply('This command only works in group chats.');
       return;
@@ -246,14 +235,14 @@ export class BotHandlers {
     }
 
     const { optedIn, notOptedIn } = await this.db.getAllMembersWithOptInStatus(group.id);
-    
+
     const optedInCount = optedIn.length;
     const notOptedInCount = notOptedIn.length;
     const totalCount = optedInCount + notOptedInCount;
 
     let message = `👥 **Member Status**\n\n`;
     message += `**Opted-in (${optedInCount}):**\n`;
-    
+
     if (optedInCount > 0) {
       optedIn.forEach((member, index) => {
         message += `${index + 1}. User ID: ${member.userId}\n`;
@@ -261,9 +250,9 @@ export class BotHandlers {
     } else {
       message += `_No members have opted in yet_\n`;
     }
-    
+
     message += `\n**Not opted-in (${notOptedInCount}):**\n`;
-    
+
     if (notOptedInCount > 0) {
       notOptedIn.forEach((member, index) => {
         message += `${index + 1}. User ID: ${member.userId}\n`;
@@ -271,7 +260,7 @@ export class BotHandlers {
     } else {
       message += `_All registered members have opted in_\n`;
     }
-    
+
     message += `\n**Total tracked:** ${totalCount} members`;
 
     await ctx.reply(message, { parse_mode: 'Markdown' });

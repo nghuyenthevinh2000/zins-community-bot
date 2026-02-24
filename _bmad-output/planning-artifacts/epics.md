@@ -25,7 +25,7 @@ This document provides the complete epic and story breakdown for zins-community-
 - FR8: Any opted-in member can cancel an active scheduling round via `/cancel`
 - FR9: The bot can send private DMs to each opted-in member requesting availability for a specific topic
 - FR10: Members can respond to the bot's DM in natural language (e.g., "I'm free Tuesday after 6pm")
-- FR11: The bot can parse natural language time expressions into structured date + time ranges using Gemini NLU
+- FR11: The bot can parse natural language time expressions into structured date + time ranges using OpenCode NLU
 - FR12: The bot can push members to provide specific date + time ranges if their response is vague
 - FR13: The bot can confirm its interpretation of a member's availability back to them
 - FR14: Members can correct the bot's interpretation if it was wrong
@@ -51,14 +51,14 @@ This document provides the complete epic and story breakdown for zins-community-
 
 - NFR1: Bot acknowledges commands in group chat within 3 seconds
 - NFR2: Bot sends DMs to all opted-in members within 30 seconds of scheduling initiation
-- NFR3: Gemini NLU parses and confirms member availability responses within 5 seconds
+- NFR3: OpenCode NLU parses and confirms member availability responses within 5 seconds
 - NFR4: Consensus is recalculated incrementally after each new response; immediate announcement on threshold
 - NFR5: Active scheduling rounds survive bot restarts — state persisted in PostgreSQL
-- NFR6: Bot recovers gracefully from Gemini API outages — queues unparsed responses and retries
+- NFR6: Bot recovers gracefully from OpenCode API outages — queues unparsed responses and retries
 - NFR7: No data loss on scheduling rounds or availability responses
 - NFR8: Bot operates within Telegram Bot API rate limits (30 msg/s global, 1 msg/s per chat)
 - NFR9: Bot handles Telegram API webhook delivery failures with retry logic
-- NFR10: Gemini API integration handles token expiration and automatic re-authentication
+- NFR10: OpenCode API integration handles token expiration and automatic re-authentication
 - NFR11: Bot supports 10+ concurrent groups with active scheduling rounds without degradation
 - NFR12: PostgreSQL schema supports efficient queries as scheduling history grows
 
@@ -87,7 +87,7 @@ This document provides the complete epic and story breakdown for zins-community-
 | FR8 | Epic 3 | Cancel active round via /cancel |
 | FR9 | Epic 4 | Send private DMs for availability |
 | FR10 | Epic 4 | Natural language availability responses |
-| FR11 | Epic 4 | Gemini NLU time parsing |
+| FR11 | Epic 4 | OpenCode NLU time parsing |
 | FR12 | Epic 4 | Push for specific date+time ranges |
 | FR13 | Epic 4 | Confirm availability interpretation |
 | FR14 | Epic 4 | Allow correction of interpretation |
@@ -280,7 +280,7 @@ So that I can respond privately without cluttering the group chat.
 **And** each DM includes the topic and timeframe
 **And** DMs respect Telegram rate limits (1 msg/s per chat, NFR8)
 
-### Story 4.2: Natural Language Availability Parsing with Gemini
+### Story 4.2: Natural Language Availability Parsing with OpenCode
 
 As an **opted-in member**,
 I want to respond with my availability in natural language,
@@ -290,8 +290,8 @@ So that I don't have to use a rigid format.
 
 **Given** a member received an availability request DM
 **When** they reply "I'm free Tuesday after 6pm and all day Thursday"
-**Then** the bot sends the response to Gemini NLU for parsing
-**And** Gemini returns structured time ranges within 5 seconds (NFR3)
+**Then** the bot sends the response to OpenCode NLU for parsing
+**And** OpenCode returns structured time ranges within 5 seconds (NFR3)
 **And** the bot stores the parsed availability in `availability_responses`
 
 ### Story 4.3: Confirm & Correct Availability Interpretation
@@ -317,20 +317,20 @@ So that the bot can calculate meaningful time overlaps.
 **Acceptance Criteria:**
 
 **Given** a member responds with something vague like "sometime next week"
-**When** Gemini identifies the response lacks specific date+time ranges
+**When** OpenCode identifies the response lacks specific date+time ranges
 **Then** the bot asks the member for more specific availability
 **And** the conversation continues until specific ranges are provided
 
-### Story 4.5: Gemini API Failure Recovery
+### Story 4.5: OpenCode API Failure Recovery
 
 As a **bot operator**,
-I want the bot to handle Gemini API outages gracefully,
+I want the bot to handle OpenCode API outages gracefully,
 So that availability responses are not lost.
 
 **Acceptance Criteria:**
 
 **Given** a member sends an availability response
-**When** the Gemini API is unavailable
+**When** the OpenCode API is unavailable
 **Then** the bot queues the unparsed response for retry (NFR6)
 **And** the bot informs the member that processing is delayed
 **And** the bot retries with exponential backoff when the API returns
