@@ -16,6 +16,7 @@ const handlers = new BotHandlers(dbService);
 // Bot command handlers
 bot.command('status', (ctx) => handlers.handleStatus(ctx));
 bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
+bot.command('members', (ctx) => handlers.handleMembers(ctx));
 
 // Unified start and deep link handler
 bot.start(async (ctx) => {

@@ -88,4 +88,49 @@ export class BotHandlers {
       `You'll receive DMs for scheduling rounds.`
     );
   }
+
+  async handleMembers(ctx: Context): Promise<void> {
+    const chat = ctx.chat;
+    if (!chat || chat.type === 'private') {
+      await ctx.reply('This command only works in group chats.');
+      return;
+    }
+
+    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    if (!group) {
+      await ctx.reply('This group is not registered. Use /start to register it.');
+      return;
+    }
+
+    const { optedIn, notOptedIn } = await this.db.getAllMembersWithOptInStatus(group.id);
+    
+    const optedInCount = optedIn.length;
+    const notOptedInCount = notOptedIn.length;
+    const totalCount = optedInCount + notOptedInCount;
+
+    let message = `👥 **Member Status**\n\n`;
+    message += `**Opted-in (${optedInCount}):**\n`;
+    
+    if (optedInCount > 0) {
+      optedIn.forEach((member, index) => {
+        message += `${index + 1}. User ID: ${member.userId}\n`;
+      });
+    } else {
+      message += `_No members have opted in yet_\n`;
+    }
+    
+    message += `\n**Not opted-in (${notOptedInCount}):**\n`;
+    
+    if (notOptedInCount > 0) {
+      notOptedIn.forEach((member, index) => {
+        message += `${index + 1}. User ID: ${member.userId}\n`;
+      });
+    } else {
+      message += `_All registered members have opted in_\n`;
+    }
+    
+    message += `\n**Total tracked:** ${totalCount} members`;
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  }
 }

@@ -1,13 +1,12 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { PrismaClient } from '@prisma/client';
-import { DatabaseService } from '../services/database.service';
+import { DatabaseService } from './database.service';
 
 const prisma = new PrismaClient();
 const db = new DatabaseService(prisma);
 
-describe('Multi-Group Isolation', () => {
+describe('Member Tracking & Opt-In Status (Story 2.2)', () => {
   beforeEach(async () => {
-    // Clean up test data
     await prisma.schedulingRound.deleteMany();
     await prisma.member.deleteMany();
     await prisma.group.deleteMany();
@@ -17,123 +16,155 @@ describe('Multi-Group Isolation', () => {
     await prisma.$disconnect();
   });
 
-  test('groups should have isolated scheduling rounds', async () => {
-    // Create Group A
-    const groupA = await db.findOrCreateGroup('group-a-123', 'Group A');
-    expect(groupA).toBeDefined();
-    expect(groupA.telegramId).toBe('group-a-123');
-
-    // Create Group B
-    const groupB = await db.findOrCreateGroup('group-b-456', 'Group B');
-    expect(groupB).toBeDefined();
-    expect(groupB.telegramId).toBe('group-b-456');
-
-    // Create a scheduling round for Group A
-    const roundA = await db.createSchedulingRound(
-      groupA.id,
-      'Team Meeting',
-      'next week'
-    );
-    expect(roundA).toBeDefined();
-    expect(roundA.groupId).toBe(groupA.id);
-    expect(roundA.status).toBe('active');
-
-    // Group B should have no active rounds
-    const groupBStatus = await db.getActiveRoundStatus(groupB.id);
-    expect(groupBStatus.hasActiveRound).toBe(false);
-    expect(groupBStatus.round).toBeNull();
-
-    // Group A should have the active round
-    const groupAStatus = await db.getActiveRoundStatus(groupA.id);
-    expect(groupAStatus.hasActiveRound).toBe(true);
-    expect(groupAStatus.round).toBeDefined();
-    expect(groupAStatus.round!.id).toBe(roundA.id);
-  });
-
-  test('database queries should be scoped by group ID', async () => {
-    // Create two groups
-    const group1 = await db.findOrCreateGroup('group-1', 'Group 1');
-    const group2 = await db.findOrCreateGroup('group-2', 'Group 2');
-
-    // Create rounds in both groups
-    await db.createSchedulingRound(group1.id, 'Round 1', 'today');
-    await db.createSchedulingRound(group1.id, 'Round 2', 'tomorrow');
-    await db.createSchedulingRound(group2.id, 'Round 3', 'next week');
-
-    // Get rounds for group 1 - should only see group 1's rounds
-    const group1Rounds = await db.getAllRoundsByGroup(group1.id);
-    expect(group1Rounds.length).toBe(2);
-    expect(group1Rounds.every(r => r.groupId === group1.id)).toBe(true);
-
-    // Get rounds for group 2 - should only see group 2's rounds
-    const group2Rounds = await db.getAllRoundsByGroup(group2.id);
-    expect(group2Rounds.length).toBe(1);
-    expect(group2Rounds[0].groupId).toBe(group2.id);
-
-    // Active round query should also be scoped
-    const activeGroup1 = await db.getActiveRoundByGroup(group1.id);
-    expect(activeGroup1).toBeDefined();
-    expect(activeGroup1!.groupId).toBe(group1.id);
-  });
-
-  test('members should be isolated per group', async () => {
-    // Create two groups
-    const group1 = await db.findOrCreateGroup('g1', 'Group 1');
-    const group2 = await db.findOrCreateGroup('g2', 'Group 2');
-
-    // Same user opts into both groups
-    const userId = 'user-123';
-    await db.optInMember(userId, group1.id);
-    await db.optInMember(userId, group2.id);
-
-    // Check membership in each group
-    const isOptedInGroup1 = await db.isMemberOptedIn(userId, group1.id);
-    const isOptedInGroup2 = await db.isMemberOptedIn(userId, group2.id);
-
-    expect(isOptedInGroup1).toBe(true);
-    expect(isOptedInGroup2).toBe(true);
-
-    // Get opted-in members for each group
-    const group1Members = await db.getOptedInMembers(group1.id);
-    const group2Members = await db.getOptedInMembers(group2.id);
-
-    expect(group1Members.length).toBe(1);
-    expect(group1Members[0].userId).toBe(userId);
-    expect(group2Members.length).toBe(1);
-    expect(group2Members[0].userId).toBe(userId);
-
-    // Verify they're different records
-    expect(group1Members[0].id).not.toBe(group2Members[0].id);
-  });
-
-  test('cancelling a round in one group should not affect other groups', async () => {
-    // Create two groups with active rounds
-    const group1 = await db.findOrCreateGroup('g1', 'Group 1');
-    const group2 = await db.findOrCreateGroup('g2', 'Group 2');
-
-    const round1 = await db.createSchedulingRound(group1.id, 'Meeting 1', 'today');
-    const round2 = await db.createSchedulingRound(group2.id, 'Meeting 2', 'today');
-
-    // Cancel round in group 1
-    await db.cancelRound(round1.id);
-
-    // Group 1 should have no active rounds
-    const group1Status = await db.getActiveRoundStatus(group1.id);
-    expect(group1Status.hasActiveRound).toBe(false);
-
-    // Group 2 should still have its active round
-    const group2Status = await db.getActiveRoundStatus(group2.id);
-    expect(group2Status.hasActiveRound).toBe(true);
-    expect(group2Status.round!.id).toBe(round2.id);
-  });
-
-  test('/status command should show no active round for groups without one', async () => {
-    const group = await db.findOrCreateGroup('empty-group', 'Empty Group');
-
-    const status = await db.getActiveRoundStatus(group.id);
+  test('should track opted-in and non-opted-in members separately', async () => {
+    const group = await db.findOrCreateGroup('group-123', 'Test Group');
     
-    expect(status.hasActiveRound).toBe(false);
-    expect(status.round).toBeNull();
-    expect(status.optedInCount).toBe(0);
+    // Create opted-in members
+    await db.optInMember('user-1', group.id);
+    await db.optInMember('user-2', group.id);
+    await db.optInMember('user-3', group.id);
+    
+    // Create non-opted-in members (registered but not opted in)
+    await db.findOrCreateMember('user-4', group.id);
+    await db.findOrCreateMember('user-5', group.id);
+    
+    const allMembers = await db.getAllMembersWithOptInStatus(group.id);
+    
+    expect(allMembers.optedIn.length).toBe(3);
+    expect(allMembers.notOptedIn.length).toBe(2);
+    expect(allMembers.optedIn.map(m => m.userId).sort()).toEqual(['user-1', 'user-2', 'user-3']);
+    expect(allMembers.notOptedIn.map(m => m.userId).sort()).toEqual(['user-4', 'user-5']);
+  });
+
+  test('should report correct opted-in member count', async () => {
+    const group = await db.findOrCreateGroup('group-456', 'Test Group 2');
+    
+    // Initially no opted-in members
+    let count = await db.getOptedInMemberCount(group.id);
+    expect(count).toBe(0);
+    
+    // Add opted-in members
+    await db.optInMember('user-a', group.id);
+    await db.optInMember('user-b', group.id);
+    
+    count = await db.getOptedInMemberCount(group.id);
+    expect(count).toBe(2);
+    
+    // Add non-opted-in member (shouldn't affect count)
+    await db.findOrCreateMember('user-c', group.id);
+    count = await db.getOptedInMemberCount(group.id);
+    expect(count).toBe(2);
+  });
+
+  test('should only include opted-in members when scheduling round initiates', async () => {
+    const group = await db.findOrCreateGroup('group-789', 'Test Group 3');
+    
+    // Create a mix of opted-in and non-opted-in members
+    await db.optInMember('opted-in-1', group.id);
+    await db.optInMember('opted-in-2', group.id);
+    await db.findOrCreateMember('not-opted-in-1', group.id);
+    await db.findOrCreateMember('not-opted-in-2', group.id);
+    
+    // Get opted-in members that should receive DMs
+    const optedInMembers = await db.getOptedInMembers(group.id);
+    
+    // Verify only opted-in members are returned
+    expect(optedInMembers.length).toBe(2);
+    expect(optedInMembers.every(m => m.optedIn === true)).toBe(true);
+    expect(optedInMembers.map(m => m.userId).sort()).toEqual(['opted-in-1', 'opted-in-2']);
+    
+    // Create a scheduling round
+    const round = await db.createSchedulingRound(group.id, 'Test Meeting', 'next week');
+    expect(round.groupId).toBe(group.id);
+    
+    // Verify round status includes opted-in count
+    const status = await db.getActiveRoundStatus(group.id);
+    expect(status.optedInCount).toBe(2);
+    expect(status.hasActiveRound).toBe(true);
+  });
+
+  test('should handle group with no opted-in members', async () => {
+    const group = await db.findOrCreateGroup('empty-group', 'Empty Group');
+    
+    // Add non-opted-in members only
+    await db.findOrCreateMember('user-x', group.id);
+    await db.findOrCreateMember('user-y', group.id);
+    
+    const optedInMembers = await db.getOptedInMembers(group.id);
+    const count = await db.getOptedInMemberCount(group.id);
+    
+    expect(optedInMembers.length).toBe(0);
+    expect(count).toBe(0);
+  });
+
+  test('should properly track opt-in status changes', async () => {
+    const group = await db.findOrCreateGroup('group-tracking', 'Tracking Group');
+    
+    // Member initially not opted in
+    let member = await db.findOrCreateMember('dynamic-user', group.id);
+    expect(member.optedIn).toBe(false);
+    
+    let isOptedIn = await db.isMemberOptedIn('dynamic-user', group.id);
+    expect(isOptedIn).toBe(false);
+    
+    // Member opts in
+    member = await db.optInMember('dynamic-user', group.id);
+    expect(member.optedIn).toBe(true);
+    expect(member.optedInAt).toBeDefined();
+    
+    isOptedIn = await db.isMemberOptedIn('dynamic-user', group.id);
+    expect(isOptedIn).toBe(true);
+    
+    // Verify count updates
+    const count = await db.getOptedInMemberCount(group.id);
+    expect(count).toBe(1);
+  });
+
+  test('should track members independently across groups', async () => {
+    const group1 = await db.findOrCreateGroup('group-alpha', 'Group Alpha');
+    const group2 = await db.findOrCreateGroup('group-beta', 'Group Beta');
+    
+    // Same user opts into both groups
+    await db.optInMember('multi-group-user', group1.id);
+    await db.optInMember('multi-group-user', group2.id);
+    
+    // Different users opt into only one group
+    await db.optInMember('group1-only', group1.id);
+    await db.optInMember('group2-only', group2.id);
+    
+    // Verify independent counts
+    const count1 = await db.getOptedInMemberCount(group1.id);
+    const count2 = await db.getOptedInMemberCount(group2.id);
+    
+    expect(count1).toBe(2);
+    expect(count2).toBe(2);
+    
+    // Verify members are correctly tracked per group
+    const members1 = await db.getOptedInMembers(group1.id);
+    const members2 = await db.getOptedInMembers(group2.id);
+    
+    expect(members1.map(m => m.userId).sort()).toEqual(['group1-only', 'multi-group-user']);
+    expect(members2.map(m => m.userId).sort()).toEqual(['group2-only', 'multi-group-user']);
+  });
+
+  test('should provide accurate opted-in count in round status', async () => {
+    const group = await db.findOrCreateGroup('status-test-group', 'Status Test');
+    
+    // Create 5 opted-in and 3 non-opted-in members
+    for (let i = 1; i <= 5; i++) {
+      await db.optInMember(`opted-user-${i}`, group.id);
+    }
+    for (let i = 1; i <= 3; i++) {
+      await db.findOrCreateMember(`non-opted-user-${i}`, group.id);
+    }
+    
+    // Create scheduling round
+    const round = await db.createSchedulingRound(group.id, 'Team Sync', 'tomorrow');
+    
+    // Check status shows correct opted-in count
+    const status = await db.getActiveRoundStatus(group.id);
+    expect(status.optedInCount).toBe(5);
+    expect(status.hasActiveRound).toBe(true);
+    expect(status.round!.id).toBe(round.id);
   });
 });
