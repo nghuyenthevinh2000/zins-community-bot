@@ -1,491 +1,243 @@
 import { PrismaClient, type Group, type Member, type SchedulingRound, type AvailabilityResponse } from '@prisma/client';
+import {
+  GroupRepository,
+  MemberRepository,
+  RoundRepository,
+  ResponseRepository,
+  NLUQueueRepository,
+  NudgeRepository
+} from '../db';
 
+/**
+ * DatabaseService - Facade that delegates to specialized repositories
+ * 
+ * This service maintains backward compatibility while using the new
+ * repository pattern defined in src/db/
+ */
 export class DatabaseService {
-  constructor(private prisma: PrismaClient) { }
+  private prisma: PrismaClient;
+  
+  // Repository instances
+  public groups: GroupRepository;
+  public members: MemberRepository;
+  public rounds: RoundRepository;
+  public responses: ResponseRepository;
+  public nluQueue: NLUQueueRepository;
+  public nudges: NudgeRepository;
+
+  constructor(prisma: PrismaClient) {
+    this.prisma = prisma;
+    
+    // Initialize repositories
+    this.groups = new GroupRepository();
+    this.members = new MemberRepository();
+    this.rounds = new RoundRepository();
+    this.responses = new ResponseRepository();
+    this.nluQueue = new NLUQueueRepository();
+    this.nudges = new NudgeRepository();
+  }
 
   getPrisma(): PrismaClient {
     return this.prisma;
   }
 
-  // Group operations
+  // ==================== GROUP OPERATIONS ====================
+  
   async findOrCreateGroup(telegramId: string, name: string): Promise<Group> {
-    const existing = await this.prisma.group.findUnique({
-      where: { telegramId }
-    });
-
-    if (existing) {
-      return existing;
-    }
-
-    return this.prisma.group.create({
-      data: { telegramId, name }
-    });
+    return this.groups.findOrCreate(telegramId, name);
   }
 
   async getGroupByTelegramId(telegramId: string): Promise<Group | null> {
-    return this.prisma.group.findUnique({
-      where: { telegramId }
-    });
+    return this.groups.findByTelegramId(telegramId);
   }
 
-  // Member operations - always scoped by group
+  // ==================== MEMBER OPERATIONS ====================
+
   async findOrCreateMember(userId: string, groupId: string): Promise<Member> {
-    const existing = await this.prisma.member.findUnique({
-      where: { userId_groupId: { userId, groupId } }
-    });
-
-    if (existing) {
-      return existing;
-    }
-
-    return this.prisma.member.create({
-      data: { userId, groupId, optedIn: false }
-    });
+    return this.members.findOrCreate(userId, groupId);
   }
 
   async optInMember(userId: string, groupId: string): Promise<Member> {
-    return this.prisma.member.upsert({
-      where: { userId_groupId: { userId, groupId } },
-      update: { optedIn: true, optedInAt: new Date() },
-      create: { userId, groupId, optedIn: true, optedInAt: new Date() }
-    });
+    return this.members.optIn(userId, groupId);
   }
 
   async getOptedInMembers(groupId: string): Promise<Member[]> {
-    return this.prisma.member.findMany({
-      where: { groupId, optedIn: true }
-    });
+    return this.members.findOptedInByGroup(groupId);
   }
 
   async isMemberOptedIn(userId: string, groupId: string): Promise<boolean> {
-    const member = await this.prisma.member.findUnique({
-      where: { userId_groupId: { userId, groupId } }
-    });
-    return member?.optedIn ?? false;
+    return this.members.isOptedIn(userId, groupId);
   }
 
   async getOptedInMemberCount(groupId: string): Promise<number> {
-    return this.prisma.member.count({
-      where: { groupId, optedIn: true }
-    });
+    return this.members.countOptedInByGroup(groupId);
   }
 
   async getAllMembersWithOptInStatus(groupId: string): Promise<{ optedIn: Member[]; notOptedIn: Member[] }> {
-    const [optedIn, notOptedIn] = await Promise.all([
-      this.prisma.member.findMany({
-        where: { groupId, optedIn: true }
-      }),
-      this.prisma.member.findMany({
-        where: { groupId, optedIn: false }
-      })
-    ]);
-
-    return { optedIn, notOptedIn };
+    return this.members.getOptInStatusByGroup(groupId);
   }
 
-  // Scheduling rounds - always scoped by group
-  async createSchedulingRound(
-    groupId: string,
-    topic: string,
-    timeframe: string
-  ): Promise<SchedulingRound> {
-    return this.prisma.schedulingRound.create({
-      data: { groupId, topic, timeframe, status: 'active' }
-    });
+  // ==================== ROUND OPERATIONS ====================
+
+  async createSchedulingRound(groupId: string, topic: string, timeframe: string): Promise<SchedulingRound> {
+    return this.rounds.create(groupId, topic, timeframe);
   }
 
   async getActiveRoundByGroup(groupId: string): Promise<SchedulingRound | null> {
-    return this.prisma.schedulingRound.findFirst({
-      where: { groupId, status: 'active' },
-      orderBy: { createdAt: 'desc' }
-    });
+    return this.rounds.findActiveByGroup(groupId);
   }
 
   async getAllRoundsByGroup(groupId: string): Promise<SchedulingRound[]> {
-    return this.prisma.schedulingRound.findMany({
-      where: { groupId },
-      orderBy: { createdAt: 'desc' }
-    });
+    return this.rounds.findAllByGroup(groupId);
   }
 
   async cancelRound(roundId: string): Promise<SchedulingRound> {
-    return this.prisma.schedulingRound.update({
-      where: { id: roundId },
-      data: { status: 'cancelled' }
-    });
+    return this.rounds.cancel(roundId);
   }
 
   async confirmRound(roundId: string): Promise<SchedulingRound> {
-    return this.prisma.schedulingRound.update({
-      where: { id: roundId },
-      data: { status: 'confirmed' }
-    });
+    return this.rounds.confirm(roundId);
   }
 
-  // Multi-group isolation check
   async getActiveRoundStatus(groupId: string): Promise<{
     hasActiveRound: boolean;
     round: SchedulingRound | null;
     optedInCount: number;
   }> {
-    const [round, optedInMembers] = await Promise.all([
-      this.getActiveRoundByGroup(groupId),
-      this.getOptedInMembers(groupId)
-    ]);
-
-    return {
-      hasActiveRound: !!round,
-      round,
-      optedInCount: optedInMembers.length
-    };
+    const { hasActiveRound, round } = await this.rounds.getActiveStatus(groupId);
+    const optedInCount = await this.members.countOptedInByGroup(groupId);
+    return { hasActiveRound, round, optedInCount };
   }
 
-  // Availability Response operations
+  // ==================== RESPONSE OPERATIONS ====================
+
   async createAvailabilityResponse(
     roundId: string,
     userId: string,
     rawResponse: string,
     parsedAvailability: any
-  ): Promise<any> {
-    // Always create a new response record (for tracking conversation history)
-    return this.prisma.availabilityResponse.create({
-      data: {
-        roundId,
-        userId,
-        rawResponse,
-        parsedAvailability,
-        status: 'pending'
-      }
-    });
+  ): Promise<AvailabilityResponse> {
+    return this.responses.create(roundId, userId, rawResponse, parsedAvailability);
   }
 
-
-  async confirmAvailabilityResponse(roundId: string, userId: string): Promise<any> {
-    const existing = await this.prisma.availabilityResponse.findFirst({
-      where: { roundId, userId },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (!existing) {
-      throw new Error('Availability response not found');
-    }
-
-    return this.prisma.availabilityResponse.update({
-      where: { id: existing.id },
-      data: { status: 'confirmed', confirmedAt: new Date() }
-    });
+  async confirmAvailabilityResponse(roundId: string, userId: string): Promise<AvailabilityResponse> {
+    return this.responses.confirm(roundId, userId);
   }
 
-  async getAvailabilityResponse(roundId: string, userId: string): Promise<any | null> {
-    return this.prisma.availabilityResponse.findFirst({
-      where: { roundId, userId },
-      orderBy: { createdAt: 'desc' }
-    });
+  async getAvailabilityResponse(roundId: string, userId: string): Promise<AvailabilityResponse | null> {
+    return this.responses.findByRoundAndUser(roundId, userId);
   }
 
-  async getPendingAvailabilityResponse(userId: string): Promise<any | null> {
-    return this.prisma.availabilityResponse.findFirst({
-      where: { userId, status: 'pending' },
-      include: { round: true },
-      orderBy: { createdAt: 'desc' }
-    });
+  async getPendingAvailabilityResponse(userId: string): Promise<AvailabilityResponse | null> {
+    return this.responses.findPendingByUser(userId);
   }
-
 
   async updateAvailabilityResponse(
     roundId: string,
     userId: string,
     rawResponse: string,
     parsedAvailability: any
-  ): Promise<any> {
-    const existing = await this.prisma.availabilityResponse.findFirst({
-      where: { roundId, userId },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (!existing) {
-      throw new Error('Availability response not found');
-    }
-
-    return this.prisma.availabilityResponse.update({
-      where: { id: existing.id },
-      data: {
-        rawResponse,
-        parsedAvailability,
-        status: 'pending',
-        confirmedAt: null
-      }
-    });
+  ): Promise<AvailabilityResponse> {
+    return this.responses.update(roundId, userId, rawResponse, parsedAvailability);
   }
 
-  // Story 4.4: Get count of vague responses for a user in a round
   async getVagueResponseCount(userId: string, roundId: string): Promise<number> {
-    // Count responses that are "pending" and don't have specific days/times
-    // We use a heuristic: count responses with status 'pending' that were created 
-    // after the first vague response
-    const vagueResponses = await this.prisma.availabilityResponse.findMany({
-      where: {
-        roundId,
-        userId,
-        status: 'pending'
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    // Count consecutive vague responses (responses without proper parsed data)
-    let vagueCount = 0;
-    for (const response of vagueResponses) {
-      const parsed = response.parsedAvailability as any;
-      const hasNoDays = !parsed?.days || parsed.days.length === 0;
-      const hasNoTimes = !parsed?.times || parsed.times.length === 0;
-
-      // Consider vague if: no days AND no times, OR has days but no times
-      if ((hasNoDays && hasNoTimes) || (!hasNoDays && hasNoTimes)) {
-        vagueCount++;
-      } else if (!hasNoDays && !hasNoTimes) {
-        // Found a specific response with both days and times, stop counting
-        break;
-      }
-      // If it has times but no days, still count as vague (missing day info)
-    }
-
-    return vagueCount;
+    return this.responses.countVagueResponses(userId, roundId);
   }
 
-  // Story 4.4: Update response status (for accepting vague responses after max retries)
-  async updateAvailabilityResponseStatus(
-    roundId: string,
-    userId: string,
-    status: string
-  ): Promise<any> {
-    const existing = await this.prisma.availabilityResponse.findFirst({
-      where: { roundId, userId },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (!existing) {
-      throw new Error('Availability response not found');
-    }
-
-    return this.prisma.availabilityResponse.update({
-      where: { id: existing.id },
-      data: { status }
-    });
+  async updateAvailabilityResponseStatus(roundId: string, userId: string, status: string): Promise<AvailabilityResponse> {
+    return this.responses.updateStatus(roundId, userId, status);
   }
 
-  // Pending NLU Request operations (for API failure recovery - NFR6)
+  // ==================== NLU QUEUE OPERATIONS ====================
+
   async queuePendingNLURequest(
     roundId: string,
     userId: string,
     rawResponse: string,
     lastError?: string
   ): Promise<any> {
-    // Calculate next retry with exponential backoff (starts at 1 minute)
-    const nextRetryAt = new Date(Date.now() + 60 * 1000);
-
-    return this.prisma.pendingNLURequest.upsert({
-      where: {
-        id: await this.getPendingRequestId(roundId, userId)
-      },
-      update: {
-        retryCount: { increment: 1 },
-        nextRetryAt,
-        lastError: lastError || undefined,
-        status: 'pending'
-      },
-      create: {
-        roundId,
-        userId,
-        rawResponse,
-        retryCount: 0,
-        nextRetryAt,
-        lastError: lastError || undefined,
-        status: 'pending'
-      }
-    });
-  }
-
-  private async getPendingRequestId(roundId: string, userId: string): Promise<string> {
-    const existing = await this.prisma.pendingNLURequest.findFirst({
-      where: { roundId, userId, status: { not: 'completed' } }
-    });
-    return existing?.id || 'new';
+    return this.nluQueue.queue(roundId, userId, rawResponse, lastError);
   }
 
   async getPendingNLURequestsForRetry(): Promise<any[]> {
-    return this.prisma.pendingNLURequest.findMany({
-      where: {
-        status: 'pending',
-        nextRetryAt: { lte: new Date() },
-        retryCount: { lt: 5 } // Max 5 retries
-      },
-      orderBy: { nextRetryAt: 'asc' }
-    });
+    return this.nluQueue.findPendingForRetry();
   }
 
   async markNLURequestCompleted(id: string): Promise<any> {
-    return this.prisma.pendingNLURequest.update({
-      where: { id },
-      data: { status: 'completed' }
-    });
+    return this.nluQueue.markCompleted(id);
   }
 
   async markNLURequestFailed(id: string, error: string): Promise<any> {
-    return this.prisma.pendingNLURequest.update({
-      where: { id },
-      data: { status: 'failed', lastError: error }
-    });
+    return this.nluQueue.markFailed(id, error);
   }
 
   async updateNLURequestRetry(id: string, retryCount: number, lastError?: string): Promise<any> {
-    // Exponential backoff: 1min, 2min, 4min, 8min, 16min
-    const delayMs = Math.min(Math.pow(2, retryCount) * 60 * 1000, 16 * 60 * 1000);
-    const nextRetryAt = new Date(Date.now() + delayMs);
-
-    return this.prisma.pendingNLURequest.update({
-      where: { id },
-      data: {
-        retryCount,
-        nextRetryAt,
-        lastError: lastError || undefined,
-        status: retryCount >= 5 ? 'failed' : 'pending'
-      }
-    });
+    return this.nluQueue.updateRetry(id, retryCount, lastError);
   }
 
   async deleteNLURequest(id: string): Promise<any> {
-    return this.prisma.pendingNLURequest.delete({
-      where: { id }
-    });
+    return this.nluQueue.delete(id);
   }
 
+  // ==================== NUDGE OPERATIONS ====================
 
-  // Story 5.1: Nudge tracking operations
   async getOrCreateNudgeTracking(roundId: string, userId: string): Promise<any> {
-    return this.prisma.nudgeTracking.upsert({
-      where: { roundId_userId: { roundId, userId } },
-      update: {},
-      create: {
-        roundId,
-        userId,
-        nudgeCount: 0,
-        lastNudgeAt: null
-      }
-    });
+    return this.nudges.findOrCreateTracking(roundId, userId);
   }
 
   async incrementNudgeCount(roundId: string, userId: string): Promise<any> {
-    return this.prisma.nudgeTracking.upsert({
-      where: { roundId_userId: { roundId, userId } },
-      update: {
-        nudgeCount: { increment: 1 },
-        lastNudgeAt: new Date()
-      },
-      create: {
-        roundId,
-        userId,
-        nudgeCount: 1,
-        lastNudgeAt: new Date()
-      }
-    });
+    return this.nudges.incrementTracking(roundId, userId);
   }
 
   async getNudgeTracking(roundId: string, userId: string): Promise<any | null> {
-    return this.prisma.nudgeTracking.findUnique({
-      where: { roundId_userId: { roundId, userId } }
-    });
+    return this.nudges.findTracking(roundId, userId);
   }
 
   async getNonRespondersForRound(roundId: string, groupId: string): Promise<any[]> {
-    // Get all opted-in members who haven't confirmed their availability
-    const optedInMembers = await this.prisma.member.findMany({
-      where: { groupId, optedIn: true },
-      select: { userId: true }
-    });
+    return this.nudges.getNonResponders(roundId, groupId);
+  }
 
-    const respondedUserIds = await this.prisma.availabilityResponse.findMany({
-      where: { roundId, status: 'confirmed' },
-      select: { userId: true }
-    });
-
-    const respondedIds = new Set(respondedUserIds.map(r => r.userId));
-
-    return optedInMembers.filter(m => !respondedIds.has(m.userId));
+  async getNonResponders(roundId: string): Promise<string[]> {
+    return this.nudges.getNonRespondersByRound(roundId);
   }
 
   async getAllNudgeTrackingForRound(roundId: string): Promise<any[]> {
-    return this.prisma.nudgeTracking.findMany({
-      where: { roundId }
-    });
-  }
-
-  // Story 5.2: Nudge operations
-  async getNudgeSettings(groupId: string): Promise<{ nudgeIntervalHours: number; maxNudgeCount: number }> {
-    const group = await this.prisma.group.findUnique({
-      where: { id: groupId },
-      select: { nudgeIntervalHours: true, maxNudgeCount: true }
-    });
-
-    return {
-      nudgeIntervalHours: group?.nudgeIntervalHours ?? 24,
-      maxNudgeCount: group?.maxNudgeCount ?? 3
-    };
-  }
-
-  async updateNudgeSettings(
-    groupId: string,
-    nudgeIntervalHours: number,
-    maxNudgeCount: number
-  ): Promise<any> {
-    return this.prisma.group.update({
-      where: { id: groupId },
-      data: { nudgeIntervalHours, maxNudgeCount }
-    });
+    return this.nudges.findAllTrackingByRound(roundId);
   }
 
   async recordNudge(groupId: string, roundId: string, userId: string, nudgeNumber: number): Promise<any> {
-    return this.prisma.nudgeHistory.create({
-      data: {
-        groupId,
-        roundId,
-        userId,
-        nudgeNumber
-      }
-    });
+    return this.nudges.recordHistory(groupId, roundId, userId, nudgeNumber);
   }
 
   async getNudgeCountForUser(groupId: string, roundId: string, userId: string): Promise<number> {
-    return this.prisma.nudgeHistory.count({
-      where: { groupId, roundId, userId }
-    });
+    return this.nudges.countHistoryForUser(groupId, roundId, userId);
   }
 
   async getLastNudgeTime(groupId: string, roundId: string, userId: string): Promise<Date | null> {
-    const lastNudge = await this.prisma.nudgeHistory.findFirst({
-      where: { groupId, roundId, userId },
-      orderBy: { sentAt: 'desc' }
-    });
-
+    const lastNudge = await this.nudges.findLastHistoryForUser(groupId, roundId, userId);
     return lastNudge?.sentAt ?? null;
   }
 
-  async shouldSendNudge(
-    groupId: string,
-    roundId: string,
-    userId: string
-  ): Promise<{ shouldSend: boolean; reason?: string }> {
-    const settings = await this.getNudgeSettings(groupId);
-    const nudgeCount = await this.getNudgeCountForUser(groupId, roundId, userId);
+  async getNudgeSettings(groupId: string): Promise<{ nudgeIntervalHours: number; maxNudgeCount: number }> {
+    return this.groups.getNudgeSettings(groupId);
+  }
 
-    // Check if max nudges reached
+  async updateNudgeSettings(groupId: string, nudgeIntervalHours: number, maxNudgeCount: number): Promise<any> {
+    return this.groups.updateNudgeSettings(groupId, nudgeIntervalHours, maxNudgeCount);
+  }
+
+  async shouldSendNudge(groupId: string, roundId: string, userId: string): Promise<{ shouldSend: boolean; reason?: string }> {
+    const settings = await this.groups.getNudgeSettings(groupId);
+    const nudgeCount = await this.nudges.countHistoryForUser(groupId, roundId, userId);
+
     if (nudgeCount >= settings.maxNudgeCount) {
       return { shouldSend: false, reason: 'max_nudges_reached' };
     }
 
-    // Check if enough time has passed since last nudge
-    const lastNudgeTime = await this.getLastNudgeTime(groupId, roundId, userId);
-    if (lastNudgeTime) {
-      const hoursSinceLastNudge = (Date.now() - lastNudgeTime.getTime()) / (1000 * 60 * 60);
+    const lastNudge = await this.nudges.findLastHistoryForUser(groupId, roundId, userId);
+    if (lastNudge?.sentAt) {
+      const hoursSinceLastNudge = (Date.now() - lastNudge.sentAt.getTime()) / (1000 * 60 * 60);
       if (hoursSinceLastNudge < settings.nudgeIntervalHours) {
         return { shouldSend: false, reason: 'too_soon' };
       }
@@ -493,33 +245,4 @@ export class DatabaseService {
 
     return { shouldSend: true };
   }
-
-  async getNonResponders(roundId: string): Promise<string[]> {
-    // Get all opted-in members for this round's group
-    const round = await this.prisma.schedulingRound.findUnique({
-      where: { id: roundId },
-      include: {
-        group: {
-          include: {
-            members: { where: { optedIn: true } }
-          }
-        }
-      }
-    });
-
-    if (!round) return [];
-
-    const optedInMemberIds = round.group.members.map(m => m.userId);
-
-    // Get users who have responded
-    const responses = await this.prisma.availabilityResponse.findMany({
-      where: { roundId },
-      select: { userId: true }
-    });
-    const respondedUserIds = new Set(responses.map(r => r.userId));
-
-    // Return users who are opted in but haven't responded
-    return optedInMemberIds.filter(userId => !respondedUserIds.has(userId));
-  }
-
 }
