@@ -50,6 +50,7 @@ model SchedulingRound {
   group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   availabilityResponses AvailabilityResponse[]
   pendingNLURequests PendingNLURequest[]
+  nudgeTrackings    NudgeTracking[]
   
   @@index([groupId])
   @@index([groupId, status])

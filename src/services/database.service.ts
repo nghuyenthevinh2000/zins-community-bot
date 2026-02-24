@@ -374,10 +374,16 @@ export class DatabaseService {
   }
 
   async incrementNudgeCount(roundId: string, userId: string): Promise<any> {
-    return this.prisma.nudgeTracking.update({
+    return this.prisma.nudgeTracking.upsert({
       where: { roundId_userId: { roundId, userId } },
-      data: {
+      update: {
         nudgeCount: { increment: 1 },
+        lastNudgeAt: new Date()
+      },
+      create: {
+        roundId,
+        userId,
+        nudgeCount: 1,
         lastNudgeAt: new Date()
       }
     });
