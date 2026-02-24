@@ -151,6 +151,46 @@ export class BotHandlers {
       `I'll DM all opted-in members to collect their availability.`,
       { parse_mode: 'Markdown' }
     );
+
+    // Send availability request DMs to all opted-in members (NFR2: within 30 seconds)
+    await this.sendAvailabilityRequests(ctx.telegram, group.id, round.topic, parsed.timeframe || 'the upcoming days');
+  }
+
+  private async sendAvailabilityRequests(
+    telegram: any,
+    groupId: string,
+    topic: string,
+    timeframe: string
+  ): Promise<void> {
+    const optedInMembers = await this.db.getOptedInMembers(groupId);
+    
+    if (optedInMembers.length === 0) {
+      console.log(`No opted-in members for group ${groupId}`);
+      return;
+    }
+
+    console.log(`Sending availability requests to ${optedInMembers.length} members for topic: ${topic}`);
+
+    // Send DMs with rate limiting (NFR8: 1 msg/s per chat = 1000ms delay)
+    for (const member of optedInMembers) {
+      try {
+        await telegram.sendMessage(
+          member.userId,
+          `📅 **Availability Request**\n\n` +
+          `A new scheduling round has started!\n\n` +
+          `**Topic:** ${topic}\n` +
+          `**Timeframe:** ${timeframe}\n\n` +
+          `Please reply with your availability in natural language (e.g., "I'm free Tuesday after 6pm").`,
+          { parse_mode: 'Markdown' }
+        );
+        console.log(`Availability request sent to user ${member.userId}`);
+        
+        // Rate limit: wait 1 second between messages (NFR8)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error(`Failed to send DM to user ${member.userId}:`, error);
+      }
+    }
   }
 
   private parseScheduleCommand(text: string): { topic: string; timeframe: string } | null {
@@ -219,6 +259,29 @@ export class BotHandlers {
       `The scheduling round has been cancelled by @${user.username || user.first_name}.`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  async handleAvailabilityResponse(ctx: Context): Promise<void> {
+    const user = ctx.from;
+    if (!user) return;
+
+    // Get the message text
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    if (!messageText) {
+      await ctx.reply('Please send your availability as a text message.');
+      return;
+    }
+
+    // For now, acknowledge the response (Story 4.2 will add NLU parsing)
+    await ctx.reply(
+      `✅ **Availability Received**\n\n` +
+      `You said: "${messageText}"\n\n` +
+      `Thank you! Your response has been recorded. ` +
+      `The bot will process all responses to find the best meeting time.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    console.log(`Availability response from user ${user.id}: ${messageText}`);
   }
 
   async handleMembers(ctx: Context): Promise<void> {

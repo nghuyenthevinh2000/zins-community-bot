@@ -58,6 +58,16 @@ bot.start(async (ctx) => {
   }
 });
 
+// Handle availability responses in DMs
+bot.on('message', async (ctx) => {
+  // Only process private messages (DMs) that aren't commands
+  if (ctx.chat?.type !== 'private') return;
+  if (ctx.message && 'text' in ctx.message && ctx.message.text?.startsWith('/')) return;
+  
+  // Handle availability response
+  await handlers.handleAvailabilityResponse(ctx);
+});
+
 // Handle when bot is added to a group
 bot.on('new_chat_members', async (ctx) => {
   const newMembers = ctx.message.new_chat_members;
