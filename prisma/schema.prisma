@@ -11,11 +11,17 @@ model Group {
   id                String   @id @default(uuid())
   telegramId        String   @unique @map("telegram_id")
   name              String
+  
+  // Story 5.2: Configurable nudge settings
+  nudgeIntervalHours Int     @default(24) @map("nudge_interval_hours")
+  maxNudgeCount     Int      @default(3) @map("max_nudge_count")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   
   members           Member[]
   schedulingRounds  SchedulingRound[]
+  nudgeHistory      NudgeHistory[]
   
   @@index([telegramId])
   @@map("groups")
@@ -96,4 +102,22 @@ model PendingNLURequest {
   @@index([nextRetryAt])
   @@index([retryCount])
   @@map("pending_nlu_requests")
+}
+
+// Story 5.2: Nudge History model
+model NudgeHistory {
+  id                String   @id @default(uuid())
+  groupId           String   @map("group_id")
+  roundId           String   @map("round_id")
+  userId            String   @map("user_id")
+  nudgeNumber       Int      @map("nudge_number") // 1st, 2nd, 3rd nudge, etc.
+  sentAt            DateTime @default(now()) @map("sent_at")
+  
+  group             Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@index([groupId])
+  @@index([roundId])
+  @@index([userId])
+  @@index([groupId, userId, roundId])
+  @@map("nudge_history")
 }

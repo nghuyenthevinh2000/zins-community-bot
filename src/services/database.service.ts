@@ -358,4 +358,107 @@ export class DatabaseService {
       where: { id }
     });
   }
+
+  // Story 5.2: Nudge operations
+  async getNudgeSettings(groupId: string): Promise<{ nudgeIntervalHours: number; maxNudgeCount: number }> {
+    const group = await this.prisma.group.findUnique({
+      where: { id: groupId },
+      select: { nudgeIntervalHours: true, maxNudgeCount: true }
+    });
+    
+    return {
+      nudgeIntervalHours: group?.nudgeIntervalHours ?? 24,
+      maxNudgeCount: group?.maxNudgeCount ?? 3
+    };
+  }
+
+  async updateNudgeSettings(
+    groupId: string, 
+    nudgeIntervalHours: number, 
+    maxNudgeCount: number
+  ): Promise<any> {
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: { nudgeIntervalHours, maxNudgeCount }
+    });
+  }
+
+  async recordNudge(groupId: string, roundId: string, userId: string, nudgeNumber: number): Promise<any> {
+    return this.prisma.nudgeHistory.create({
+      data: {
+        groupId,
+        roundId,
+        userId,
+        nudgeNumber
+      }
+    });
+  }
+
+  async getNudgeCountForUser(groupId: string, roundId: string, userId: string): Promise<number> {
+    return this.prisma.nudgeHistory.count({
+      where: { groupId, roundId, userId }
+    });
+  }
+
+  async getLastNudgeTime(groupId: string, roundId: string, userId: string): Promise<Date | null> {
+    const lastNudge = await this.prisma.nudgeHistory.findFirst({
+      where: { groupId, roundId, userId },
+      orderBy: { sentAt: 'desc' }
+    });
+    
+    return lastNudge?.sentAt ?? null;
+  }
+
+  async shouldSendNudge(
+    groupId: string, 
+    roundId: string, 
+    userId: string
+  ): Promise<{ shouldSend: boolean; reason?: string }> {
+    const settings = await this.getNudgeSettings(groupId);
+    const nudgeCount = await this.getNudgeCountForUser(groupId, roundId, userId);
+    
+    // Check if max nudges reached
+    if (nudgeCount >= settings.maxNudgeCount) {
+      return { shouldSend: false, reason: 'max_nudges_reached' };
+    }
+    
+    // Check if enough time has passed since last nudge
+    const lastNudgeTime = await this.getLastNudgeTime(groupId, roundId, userId);
+    if (lastNudgeTime) {
+      const hoursSinceLastNudge = (Date.now() - lastNudgeTime.getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLastNudge < settings.nudgeIntervalHours) {
+        return { shouldSend: false, reason: 'too_soon' };
+      }
+    }
+    
+    return { shouldSend: true };
+  }
+
+  async getNonResponders(roundId: string): Promise<string[]> {
+    // Get all opted-in members for this round's group
+    const round = await this.prisma.schedulingRound.findUnique({
+      where: { id: roundId },
+      include: { 
+        group: { 
+          include: { 
+            members: { where: { optedIn: true } } 
+          } 
+        } 
+      }
+    });
+    
+    if (!round) return [];
+    
+    const optedInMemberIds = round.group.members.map(m => m.userId);
+    
+    // Get users who have responded
+    const responses = await this.prisma.availabilityResponse.findMany({
+      where: { roundId },
+      select: { userId: true }
+    });
+    const respondedUserIds = new Set(responses.map(r => r.userId));
+    
+    // Return users who are opted in but haven't responded
+    return optedInMemberIds.filter(userId => !respondedUserIds.has(userId));
+  }
 }
