@@ -67,8 +67,6 @@ Text to parse: ${text}`;
       // Cleanup session
       await client.session.delete({ path: { id: session.id } });
 
-      console.log('Full Response:', JSON.stringify(response, null, 2));
-
       const parts = response.data?.parts || [];
       const textPart = parts.find((p: any) => p.type === 'text');
       let content = textPart ? textPart.text : '';
@@ -122,7 +120,11 @@ Text to parse: ${text}`;
 
     } catch (error) {
       console.error('Error parsing availability:', error);
-      throw error;
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        isVague: true
+      };
     }
   }
 
@@ -153,7 +155,10 @@ Text to parse: ${text}`;
 
     if (dayMatches.length > 0) {
       for (const match of dayMatches) {
-        const dayName = match[1].toLowerCase();
+        if (!match || match.index === undefined) continue;
+        const dayName = match[1]?.toLowerCase();
+        if (!dayName) continue;
+
         const targetDay = days.indexOf(dayName);
 
         if (targetDay !== -1) {
@@ -169,7 +174,7 @@ Text to parse: ${text}`;
           let endHour = 18;
 
           // Check for time qualifiers
-          const textAfterDay = text.substring(match.index! + match[0].length).toLowerCase();
+          const textAfterDay = text.substring(match.index + match[0].length).toLowerCase();
 
           if (textAfterDay.includes('morning')) {
             startHour = 9;
