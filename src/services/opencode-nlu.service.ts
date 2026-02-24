@@ -1,3 +1,5 @@
+import { createOpencode } from "@opencode-ai/sdk";
+
 export interface ParsedAvailability {
   startTime: Date;
   endTime: Date;
@@ -13,28 +15,26 @@ export interface NLUParseResult {
 }
 
 export class OpenCodeNLUService {
-  private apiKey: string;
-  private baseUrl: string;
+  private opencodeInstance: Promise<any>;
 
   constructor() {
-    this.apiKey = process.env.OPENCODE_API_KEY || '';
-    this.baseUrl = process.env.OPENCODE_BASE_URL || 'https://api.opencode.ai/v1';
+    // run `opencode models` to find all available models
+    this.opencodeInstance = createOpencode({
+      config: {
+        model: 'opencode/gpt-5-nano'
+      }
+    });
   }
 
   async parseAvailability(text: string, referenceDate: Date = new Date()): Promise<NLUParseResult> {
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'opencodelm',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a natural language time parser. Extract specific date and time ranges from the user's availability text. 
+      const { client } = await this.opencodeInstance;
+
+      const sessionRes = await client.session.create({ body: { title: "NLU parser" } });
+      if (!sessionRes.data) throw new Error("No session created");
+      const session = sessionRes.data;
+
+      const promptText = `You are a natural language time parser. Extract specific date and time ranges from the user's availability text. 
               
 Parse expressions like "Tuesday after 6pm", "all day Thursday", "Friday morning", "next week", etc.
 
@@ -51,27 +51,27 @@ Rules:
 - Convert relative dates (Tuesday, next week) to absolute dates based on the reference date
 - If a time range is not specified, assume reasonable defaults (e.g., "morning" = 9am-12pm, "afternoon" = 12pm-6pm, "evening" = 6pm-10pm)
 - "All day" means 9am to 6pm
-- If the text is too vague to extract specific times, set "isVague": true and provide an empty array
+- If the text is too vague to extract specific times, set "isVague": true inside the JSON or return an empty array
 - Always return valid JSON, no markdown formatting
 
-Reference date: ${referenceDate.toISOString()}`
-            },
-            {
-              role: 'user',
-              content: text
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 500
-        })
+Reference date: ${referenceDate.toISOString()}
+Text to parse: ${text}`;
+
+      const response = await client.session.prompt({
+        path: { id: session.id },
+        body: {
+          parts: [{ type: 'text', text: promptText }]
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenCode API error: ${response.status} ${response.statusText}`);
-      }
+      // Cleanup session
+      await client.session.delete({ path: { id: session.id } });
 
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
+      console.log('Full Response:', JSON.stringify(response, null, 2));
+
+      const parts = response.data?.parts || [];
+      const textPart = parts.find((p: any) => p.type === 'text');
+      let content = textPart ? textPart.text : '';
 
       if (!content) {
         return {
@@ -105,13 +105,13 @@ Reference date: ${referenceDate.toISOString()}`
       }
 
       // Convert to ParsedAvailability array
-      const availabilities: ParsedAvailability[] = Array.isArray(parsed) 
+      const availabilities: ParsedAvailability[] = Array.isArray(parsed)
         ? parsed.map((item: any) => ({
-            startTime: new Date(item.startTime),
-            endTime: new Date(item.endTime),
-            isVague: false,
-            explanation: item.explanation || ''
-          }))
+          startTime: new Date(item.startTime),
+          endTime: new Date(item.endTime),
+          isVague: false,
+          explanation: item.explanation || ''
+        }))
         : [];
 
       return {
@@ -122,11 +122,18 @@ Reference date: ${referenceDate.toISOString()}`
 
     } catch (error) {
       console.error('Error parsing availability:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        isVague: true
-      };
+      throw error;
+    }
+  }
+
+  async close() {
+    try {
+      const { server } = await this.opencodeInstance;
+      if (server && typeof server.close === 'function') {
+        server.close();
+      }
+    } catch (e) {
+      // Ignore
     }
   }
 
@@ -134,36 +141,36 @@ Reference date: ${referenceDate.toISOString()}`
   async parseAvailabilityFallback(text: string, referenceDate: Date = new Date()): Promise<NLUParseResult> {
     const lowerText = text.toLowerCase();
     const availabilities: ParsedAvailability[] = [];
-    
+
     // Simple regex-based parsing for common patterns
-    
+
     // Pattern: "Tuesday after 6pm", "Wednesday evening", "Thursday morning"
     const dayPattern = /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi;
     const timePattern = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/gi;
-    
+
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayMatches = [...text.matchAll(dayPattern)];
-    
+
     if (dayMatches.length > 0) {
       for (const match of dayMatches) {
         const dayName = match[1].toLowerCase();
         const targetDay = days.indexOf(dayName);
-        
+
         if (targetDay !== -1) {
           const currentDay = referenceDate.getDay();
           let daysUntil = targetDay - currentDay;
           if (daysUntil < 0) daysUntil += 7;
-          
+
           const targetDate = new Date(referenceDate);
           targetDate.setDate(referenceDate.getDate() + daysUntil);
-          
+
           // Default times
           let startHour = 9;
           let endHour = 18;
-          
+
           // Check for time qualifiers
           const textAfterDay = text.substring(match.index! + match[0].length).toLowerCase();
-          
+
           if (textAfterDay.includes('morning')) {
             startHour = 9;
             endHour = 12;
@@ -177,13 +184,13 @@ Reference date: ${referenceDate.toISOString()}`
             startHour = 9;
             endHour = 18;
           }
-          
+
           const startTime = new Date(targetDate);
           startTime.setHours(startHour, 0, 0, 0);
-          
+
           const endTime = new Date(targetDate);
           endTime.setHours(endHour, 0, 0, 0);
-          
+
           availabilities.push({
             startTime,
             endTime,
@@ -193,11 +200,11 @@ Reference date: ${referenceDate.toISOString()}`
         }
       }
     }
-    
+
     // Check for vague responses
     const vagueTerms = ['sometime', 'whenever', 'soon', 'later', 'maybe', 'not sure'];
     const isVague = vagueTerms.some(term => lowerText.includes(term)) || availabilities.length === 0;
-    
+
     return {
       success: true,
       parsed: availabilities,
