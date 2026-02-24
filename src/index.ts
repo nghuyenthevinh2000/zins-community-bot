@@ -1,8 +1,7 @@
 import { Telegraf } from 'telegraf';
-import * as dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
-
-dotenv.config();
+import { DatabaseService } from './services/database.service';
+import { BotHandlers } from './services/bot-handlers.service';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -11,8 +10,13 @@ if (!token) {
 
 const bot = new Telegraf(token || 'dummy_token');
 const prisma = new PrismaClient();
+const dbService = new DatabaseService(prisma);
+const handlers = new BotHandlers(dbService);
 
-bot.start((ctx) => ctx.reply('Welcome! Zins Community Bot is running.'));
+// Bot command handlers
+bot.start((ctx) => handlers.handleStart(ctx));
+bot.command('status', (ctx) => handlers.handleStatus(ctx));
+bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
 
 // Basic webhook setup test
 if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_DOMAIN) {
