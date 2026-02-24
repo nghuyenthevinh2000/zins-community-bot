@@ -1,5 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
+import { DatabaseService } from './services/database.service';
+import { BotHandlers } from './services/bot-handlers.service';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -8,8 +10,37 @@ if (!token) {
 
 const bot = new Telegraf(token || 'dummy_token');
 const prisma = new PrismaClient();
+const dbService = new DatabaseService(prisma);
+const handlers = new BotHandlers(dbService);
 
-bot.start((ctx) => ctx.reply('Welcome! Zins Community Bot is running.'));
+// Bot command handlers
+bot.command('status', (ctx) => handlers.handleStatus(ctx));
+bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
+
+// Unified start and deep link handler
+bot.start(async (ctx) => {
+  const payload = ctx.payload;
+  
+  // Handle opt-in deep link
+  if (payload && payload.startsWith('optin_')) {
+    const groupId = payload.replace('optin_', '');
+    
+    // Check if this is a private chat (DM)
+    if (ctx.chat.type === 'private') {
+      await ctx.reply(
+        `✅ **You've opted in!**\n\n` +
+        `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
+        `and be included in future scheduling rounds for your group.\n\n` +
+        `You can use /help at any time to see available commands.`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`Member opted in: User ${ctx.from.id} for group ${groupId}`);
+    }
+  } else {
+    // Standard start handler
+    await handlers.handleStart(ctx);
+  }
+});
 
 // Handle when bot is added to a group
 bot.on('new_chat_members', async (ctx) => {
@@ -62,29 +93,6 @@ bot.on('new_chat_members', async (ctx) => {
       console.error('Error registering group:', error);
       await ctx.reply('❌ Sorry, there was an error setting up the bot for this group. Please try removing and re-adding me.');
     }
-  }
-});
-
-// Handle deep link for opt-in
-bot.command('start', async (ctx) => {
-  const payload = ctx.payload;
-  
-  if (payload.startsWith('optin_')) {
-    const groupId = payload.replace('optin_', '');
-    
-    // Check if this is a private chat (DM)
-    if (ctx.chat.type === 'private') {
-      await ctx.reply(
-        `✅ **You've opted in!**\n\n` +
-        `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
-        `and be included in future scheduling rounds for your group.\n\n` +
-        `You can use /help at any time to see available commands.`,
-        { parse_mode: 'Markdown' }
-      );
-      console.log(`Member opted in: User ${ctx.from.id} for group ${groupId}`);
-    }
-  } else {
-    ctx.reply('Welcome! Zins Community Bot is running.');
   }
 });
 

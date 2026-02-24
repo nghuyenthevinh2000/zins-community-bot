@@ -8,11 +8,48 @@ datasource db {
 }
 
 model Group {
+  id                String   @id @default(uuid())
+  telegramId        String   @unique @map("telegram_id")
+  name              String
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  members           Member[]
+  schedulingRounds  SchedulingRound[]
+  
+  @@index([telegramId])
+  @@map("groups")
+}
+
+model Member {
   id          String   @id @default(uuid())
-  telegramId  String   @unique @map("telegram_id")
-  name        String
+  userId      String   @map("user_id")
+  groupId     String   @map("group_id")
+  optedIn     Boolean  @default(false) @map("opted_in")
+  optedInAt   DateTime? @map("opted_in_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, groupId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("members")
+}
 
-  @@map("groups")
+model SchedulingRound {
+  id          String   @id @default(uuid())
+  groupId     String   @map("group_id")
+  topic       String
+  timeframe   String
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@index([groupId])
+  @@index([groupId, status])
+  @@map("scheduling_rounds")
 }
