@@ -1,4 +1,4 @@
-import { createOpencode } from "@opencode-ai/sdk";
+import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
 
 export interface ParsedAvailability {
   startTime: Date;
@@ -18,12 +18,21 @@ export class OpenCodeNLUService {
   private opencodeInstance: Promise<any>;
 
   constructor() {
-    // run `opencode models` to find all available models
-    this.opencodeInstance = createOpencode({
-      config: {
-        model: 'opencode/gpt-5-nano'
-      }
-    });
+    const externalUrl = process.env.OPENCODE_URL;
+    if (externalUrl) {
+      console.log(`Connecting to external OpenCode server at ${externalUrl}`);
+      this.opencodeInstance = Promise.resolve({
+        client: createOpencodeClient({ baseUrl: externalUrl }),
+        server: { close: () => { } }
+      });
+    } else {
+      // run `opencode models` to find all available models
+      this.opencodeInstance = createOpencode({
+        config: {
+          model: 'opencode/gpt-5-nano'
+        }
+      });
+    }
   }
 
   async parseAvailability(text: string, referenceDate: Date = new Date()): Promise<NLUParseResult> {
