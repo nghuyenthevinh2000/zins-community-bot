@@ -3,6 +3,10 @@ import { PrismaClient, type Group, type Member, type SchedulingRound } from '@pr
 export class DatabaseService {
   constructor(private prisma: PrismaClient) {}
 
+  getPrisma(): PrismaClient {
+    return this.prisma;
+  }
+
   // Group operations
   async findOrCreateGroup(telegramId: string, name: string): Promise<Group> {
     const existing = await this.prisma.group.findUnique({
@@ -134,5 +138,68 @@ export class DatabaseService {
       round,
       optedInCount: optedInMembers.length
     };
+  }
+
+  // Availability Response operations
+  async createAvailabilityResponse(
+    roundId: string,
+    userId: string,
+    rawResponse: string,
+    parsedAvailability: any
+  ): Promise<any> {
+    return this.prisma.availabilityResponse.upsert({
+      where: { roundId_userId: { roundId, userId } },
+      update: {
+        rawResponse,
+        parsedAvailability,
+        status: 'pending',
+        confirmedAt: null
+      },
+      create: {
+        roundId,
+        userId,
+        rawResponse,
+        parsedAvailability,
+        status: 'pending'
+      }
+    });
+  }
+
+  async confirmAvailabilityResponse(roundId: string, userId: string): Promise<any> {
+    return this.prisma.availabilityResponse.update({
+      where: { roundId_userId: { roundId, userId } },
+      data: { status: 'confirmed', confirmedAt: new Date() }
+    });
+  }
+
+  async getAvailabilityResponse(roundId: string, userId: string): Promise<any | null> {
+    return this.prisma.availabilityResponse.findUnique({
+      where: { roundId_userId: { roundId, userId } }
+    });
+  }
+
+  async getPendingAvailabilityResponse(userId: string): Promise<any | null> {
+    return this.prisma.availabilityResponse.findFirst({
+      where: { userId, status: 'pending' },
+      include: { round: true },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async updateAvailabilityResponse(
+    roundId: string,
+    userId: string,
+    rawResponse: string,
+    parsedAvailability: any
+  ): Promise<any> {
+    return this.prisma.availabilityResponse.update({
+      where: { roundId_userId: { roundId, userId } },
+      data: {
+        rawResponse,
+        parsedAvailability,
+        status: 'pending',
+        confirmedAt: null
+      }
+    });
   }
 }

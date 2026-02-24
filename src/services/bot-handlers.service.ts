@@ -221,6 +221,130 @@ export class BotHandlers {
     );
   }
 
+  async handleAvailabilityResponse(ctx: Context): Promise<void> {
+    const user = ctx.from;
+    if (!user) return;
+
+    const userId = user.id.toString();
+    const chat = ctx.chat;
+    
+    if (!chat || chat.type !== 'private') return;
+
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    if (!messageText) {
+      await ctx.reply('Please send your availability as a text message.');
+      return;
+    }
+
+    // Check if user has a pending confirmation
+    const pendingResponse = await this.db.getPendingAvailabilityResponse(userId);
+    
+    if (pendingResponse) {
+      const normalizedText = messageText.toLowerCase().trim();
+      
+      if (normalizedText === 'yes' || normalizedText === 'y' || normalizedText === 'correct' || normalizedText === 'right') {
+        await this.db.confirmAvailabilityResponse(pendingResponse.roundId, userId);
+        await ctx.reply(
+          `✅ **Availability Confirmed!**\n\n` +
+          `Your availability has been recorded. Thank you!`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      } else {
+        // User is correcting - re-parse and confirm again
+        const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+        await this.db.updateAvailabilityResponse(
+          pendingResponse.roundId,
+          userId,
+          messageText,
+          parsedAvailability
+        );
+        
+        await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
+        return;
+      }
+    }
+
+    // New availability response
+    const member = await this.findMemberWithActiveRound(userId);
+    if (!member) {
+      await ctx.reply(
+        `❌ You don't have any active scheduling rounds.\n` +
+        `Please wait for a scheduling round to start in your group.`
+      );
+      return;
+    }
+
+    // Parse and store
+    const parsedAvailability = this.parseNaturalLanguageAvailability(messageText);
+    
+    await this.db.createAvailabilityResponse(
+      member.roundId,
+      userId,
+      messageText,
+      parsedAvailability
+    );
+
+    await this.sendConfirmationRequest(ctx, messageText, parsedAvailability);
+  }
+
+  private async findMemberWithActiveRound(userId: string): Promise<{ roundId: string; groupId: string } | null> {
+    const memberships = await this.db.getPrisma().member.findMany({
+      where: { userId },
+      select: { groupId: true }
+    });
+
+    for (const membership of memberships) {
+      const activeRound = await this.db.getActiveRoundByGroup(membership.groupId);
+      if (activeRound) {
+        return { roundId: activeRound.id, groupId: membership.groupId };
+      }
+    }
+
+    return null;
+  }
+
+  private parseNaturalLanguageAvailability(text: string): any {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const foundDays: string[] = [];
+    
+    const lowerText = text.toLowerCase();
+    days.forEach(day => {
+      if (lowerText.includes(day)) {
+        foundDays.push(day.charAt(0).toUpperCase() + day.slice(1));
+      }
+    });
+
+    const timeMatches = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/gi) || [];
+    
+    return {
+      days: foundDays,
+      times: timeMatches,
+      raw: text,
+      parsed: foundDays.length > 0 || timeMatches.length > 0
+    };
+  }
+
+  private async sendConfirmationRequest(ctx: Context, rawText: string, parsed: any): Promise<void> {
+    let interpretation = `**I understood:**\n`;
+    
+    if (parsed.days && parsed.days.length > 0) {
+      interpretation += `📅 Days: ${parsed.days.join(', ')}\n`;
+    }
+    
+    if (parsed.times && parsed.times.length > 0) {
+      interpretation += `🕐 Times: ${parsed.times.join(', ')}\n`;
+    }
+    
+    if ((!parsed.days || parsed.days.length === 0) && (!parsed.times || parsed.times.length === 0)) {
+      interpretation += `I couldn't identify specific days or times. I'll record: "${rawText}"\n`;
+    }
+
+    interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
+
+    await ctx.reply(interpretation, { parse_mode: 'Markdown' });
+  }
+
   async handleMembers(ctx: Context): Promise<void> {
     const chat = ctx.chat;
     if (!chat || chat.type === 'private') {

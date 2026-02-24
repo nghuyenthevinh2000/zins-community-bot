@@ -20,42 +20,13 @@ bot.command('status', (ctx) => handlers.handleStatus(ctx));
 bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
 bot.command('members', (ctx) => handlers.handleMembers(ctx));
 
-// Unified start and deep link handler
-bot.start(async (ctx) => {
-  const payload = ctx.payload;
-
-  // Handle opt-in deep link
-  if (payload && payload.startsWith('optin_')) {
-    const groupId = payload.replace('optin_', '');
-
-    // Check if this is a private chat (DM)
-    if (ctx.chat.type === 'private') {
-      try {
-        const group = await dbService.getGroupByTelegramId(groupId);
-        if (!group) {
-          await ctx.reply('❌ Sorry, this group is not registered with the bot.');
-          return;
-        }
-
-        await dbService.optInMember(ctx.from.id.toString(), group.id);
-
-        await ctx.reply(
-          `✅ **You've opted in!**\n\n` +
-          `Thank you for opting in to Zins Community Bot. You'll now receive scheduling messages ` +
-          `and be included in future scheduling rounds for your group.\n\n` +
-          `You can use /help at any time to see available commands.`,
-          { parse_mode: 'Markdown' }
-        );
-        console.log(`Member opted in: User ${ctx.from.id} for group ${group.name} (${group.telegramId})`);
-      } catch (error) {
-        console.error('Error opting in member:', error);
-        await ctx.reply('❌ An error occurred while opting you in. Please try again.');
-      }
-    }
-  } else {
-    // Standard start handler
-    await handlers.handleStart(ctx);
-  }
+// Handle availability responses in DMs
+bot.on('message', async (ctx) => {
+  // Only process private messages (DMs) that aren't commands
+  if (ctx.chat?.type !== 'private') return;
+  if (ctx.message && 'text' in ctx.message && ctx.message.text?.startsWith('/')) return;
+  
+  await handlers.handleAvailabilityResponse(ctx);
 });
 
 // Handle when bot is added to a group
