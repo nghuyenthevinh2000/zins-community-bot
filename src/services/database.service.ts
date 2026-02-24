@@ -358,4 +358,57 @@ export class DatabaseService {
       where: { id }
     });
   }
+
+  // Story 5.1: Nudge tracking operations
+  async getOrCreateNudgeTracking(roundId: string, userId: string): Promise<any> {
+    return this.prisma.nudgeTracking.upsert({
+      where: { roundId_userId: { roundId, userId } },
+      update: {},
+      create: {
+        roundId,
+        userId,
+        nudgeCount: 0,
+        lastNudgeAt: null
+      }
+    });
+  }
+
+  async incrementNudgeCount(roundId: string, userId: string): Promise<any> {
+    return this.prisma.nudgeTracking.update({
+      where: { roundId_userId: { roundId, userId } },
+      data: {
+        nudgeCount: { increment: 1 },
+        lastNudgeAt: new Date()
+      }
+    });
+  }
+
+  async getNudgeTracking(roundId: string, userId: string): Promise<any | null> {
+    return this.prisma.nudgeTracking.findUnique({
+      where: { roundId_userId: { roundId, userId } }
+    });
+  }
+
+  async getNonRespondersForRound(roundId: string, groupId: string): Promise<any[]> {
+    // Get all opted-in members who haven't confirmed their availability
+    const optedInMembers = await this.prisma.member.findMany({
+      where: { groupId, optedIn: true },
+      select: { userId: true }
+    });
+
+    const respondedUserIds = await this.prisma.availabilityResponse.findMany({
+      where: { roundId, status: 'confirmed' },
+      select: { userId: true }
+    });
+
+    const respondedIds = new Set(respondedUserIds.map(r => r.userId));
+    
+    return optedInMembers.filter(m => !respondedIds.has(m.userId));
+  }
+
+  async getAllNudgeTrackingForRound(roundId: string): Promise<any[]> {
+    return this.prisma.nudgeTracking.findMany({
+      where: { roundId }
+    });
+  }
 }

@@ -97,3 +97,21 @@ model PendingNLURequest {
   @@index([retryCount])
   @@map("pending_nlu_requests")
 }
+
+model NudgeTracking {
+  id                String   @id @default(uuid())
+  roundId           String   @map("round_id")
+  userId            String   @map("user_id")
+  nudgeCount        Int      @default(0) @map("nudge_count")
+  lastNudgeAt       DateTime? @map("last_nudge_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([userId])
+  @@index([nudgeCount])
+  @@map("nudge_tracking")
+}

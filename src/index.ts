@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { DatabaseService } from './services/database.service';
 import { BotHandlers } from './services/bot-handlers.service';
 import { NLURetryService } from './services/nlu-retry.service';
+import { NudgeService } from './services/nudge.service';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -16,6 +17,12 @@ const handlers = new BotHandlers(dbService);
 
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
 const retryService = new NLURetryService(dbService, bot.telegram);
+
+// Initialize Nudge service for Story 5.1
+const nudgeService = new NudgeService(dbService, bot.telegram, {
+  nudgeIntervalHours: 24,  // Nudge every 24 hours
+  maxNudgeCount: 3         // Max 3 nudges per round
+});
 
 // Bot command handlers
 bot.use(async (ctx, next) => {
@@ -113,14 +120,19 @@ if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_DOMAIN) {
 // Start NLU retry service for processing queued requests (Story 4.5)
 retryService.start();
 
+// Start Nudge service for Story 5.1
+nudgeService.start();
+
 // Enable graceful stop
 process.once('SIGINT', async () => {
   bot.stop('SIGINT');
   retryService.stop();
+  nudgeService.stop();
   await prisma.$disconnect();
 });
 process.once('SIGTERM', async () => {
   bot.stop('SIGTERM');
   retryService.stop();
+  nudgeService.stop();
   await prisma.$disconnect();
 });
