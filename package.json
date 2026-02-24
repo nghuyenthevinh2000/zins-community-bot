@@ -1,0 +1,29 @@
+{
+  "name": "zins-community-bot",
+  "version": "1.0.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@google/generative-ai": "latest",
+    "@prisma/client": "^6",
+    "dotenv": "latest",
+    "node-cron": "latest",
+    "pg": "latest",
+    "telegraf": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node-cron": "latest",
+    "@types/pg": "latest",
+    "prisma": "^6",
+    "typescript": "^5.0.0"
+  }
+}
