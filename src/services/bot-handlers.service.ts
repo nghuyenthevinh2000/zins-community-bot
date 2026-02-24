@@ -183,6 +183,55 @@ export class BotHandlers {
     return null;
   }
 
+  async handleCancel(ctx: Context): Promise<void> {
+    const chat = ctx.chat;
+    const user = ctx.from;
+    
+    if (!chat || chat.type === 'private') {
+      await ctx.reply('This command only works in group chats.');
+      return;
+    }
+
+    if (!user) {
+      await ctx.reply('Unable to identify user.');
+      return;
+    }
+
+    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    if (!group) {
+      await ctx.reply('This group is not registered. Use /start to register it.');
+      return;
+    }
+
+    // Check if user is opted-in
+    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
+    if (!isOptedIn) {
+      await ctx.reply(
+        `❌ @${user.username || user.first_name}, you must opt-in first to cancel a scheduling round.\n` +
+        `Use the opt-in button or message me directly.`
+      );
+      return;
+    }
+
+    // Check if there's an active round
+    const activeRound = await this.db.getActiveRoundByGroup(group.id);
+    if (!activeRound) {
+      await ctx.reply('No active scheduling round to cancel in this group.');
+      return;
+    }
+
+    // Cancel the round
+    await this.db.cancelRound(activeRound.id);
+
+    await ctx.reply(
+      `✅ **Scheduling Round Cancelled**\n\n` +
+      `Topic: ${activeRound.topic}\n` +
+      `Timeframe: ${activeRound.timeframe}\n\n` +
+      `The scheduling round has been cancelled by @${user.username || user.first_name}.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
   async handleMembers(ctx: Context): Promise<void> {
     const chat = ctx.chat;
     if (!chat || chat.type === 'private') {
