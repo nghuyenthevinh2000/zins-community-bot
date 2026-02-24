@@ -48,8 +48,29 @@ model SchedulingRound {
   updatedAt   DateTime @updatedAt @map("updated_at")
   
   group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  availabilityResponses AvailabilityResponse[]
   
   @@index([groupId])
   @@index([groupId, status])
   @@map("scheduling_rounds")
+}
+
+model AvailabilityResponse {
+  id                String   @id @default(uuid())
+  roundId           String   @map("round_id")
+  memberId          String   @map("member_id")
+  rawText           String   @map("raw_text")
+  parsedStartTime   DateTime? @map("parsed_start_time")
+  parsedEndTime     DateTime? @map("parsed_end_time")
+  isVague           Boolean  @default(false) @map("is_vague")
+  status            String   @default("pending") @map("status")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  @@index([roundId])
+  @@index([memberId])
+  @@index([roundId, memberId])
+  @@map("availability_responses")
 }

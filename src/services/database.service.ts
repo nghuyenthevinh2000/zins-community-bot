@@ -1,4 +1,4 @@
-import { PrismaClient, type Group, type Member, type SchedulingRound } from '@prisma/client';
+import { PrismaClient, type Group, type Member, type SchedulingRound, type AvailabilityResponse } from '@prisma/client';
 
 export class DatabaseService {
   constructor(private prisma: PrismaClient) {}
@@ -134,5 +134,62 @@ export class DatabaseService {
       round,
       optedInCount: optedInMembers.length
     };
+  }
+
+  // Availability response operations
+  async createAvailabilityResponse(
+    roundId: string,
+    memberId: string,
+    rawText: string,
+    parsedStartTime?: Date,
+    parsedEndTime?: Date,
+    isVague: boolean = false,
+    status: string = 'pending'
+  ): Promise<AvailabilityResponse> {
+    return this.prisma.availabilityResponse.create({
+      data: {
+        roundId,
+        memberId,
+        rawText,
+        parsedStartTime,
+        parsedEndTime,
+        isVague,
+        status
+      }
+    });
+  }
+
+  async updateAvailabilityResponse(
+    responseId: string,
+    data: Partial<AvailabilityResponse>
+  ): Promise<AvailabilityResponse> {
+    return this.prisma.availabilityResponse.update({
+      where: { id: responseId },
+      data
+    });
+  }
+
+  async getAvailabilityResponsesByRound(roundId: string): Promise<AvailabilityResponse[]> {
+    return this.prisma.availabilityResponse.findMany({
+      where: { roundId },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async getAvailabilityResponseByMemberAndRound(
+    memberId: string,
+    roundId: string
+  ): Promise<AvailabilityResponse | null> {
+    return this.prisma.availabilityResponse.findFirst({
+      where: { memberId, roundId },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async hasMemberResponded(memberId: string, roundId: string): Promise<boolean> {
+    const count = await this.prisma.availabilityResponse.count({
+      where: { memberId, roundId }
+    });
+    return count > 0;
   }
 }

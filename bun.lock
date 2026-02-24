@@ -7,7 +7,7 @@
       "dependencies": {
         "@google/generative-ai": "latest",
         "@opencode-ai/sdk": "^1.2.10",
-        "@prisma/client": "^6",
+        "@prisma/client": "6",
         "dotenv": "latest",
         "node-cron": "latest",
         "pg": "latest",
@@ -17,7 +17,7 @@
         "@types/bun": "latest",
         "@types/node-cron": "latest",
         "@types/pg": "latest",
-        "prisma": "^6",
+        "prisma": "6",
         "typescript": "^5.0.0",
       },
     },
