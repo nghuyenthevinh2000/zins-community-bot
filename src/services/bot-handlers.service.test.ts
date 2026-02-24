@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { BotHandlers } from './bot-handlers.service';
-import { DatabaseService } from './database.service';
+import { Repositories } from './bot-handlers.service';
 
 // Mock the entire OpenCodeNLUService class
 mock.module('./opencode-nlu.service', () => {
@@ -13,22 +13,31 @@ mock.module('./opencode-nlu.service', () => {
 });
 
 describe('BotHandlers.handleCancel (Story 3.3)', () => {
-  let dbServiceMock: any;
+  let reposMock: Repositories;
   let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
   beforeEach(() => {
-    dbServiceMock = {
-      getGroupByTelegramId: mock(() => Promise.resolve(null)),
-      isMemberOptedIn: mock(() => Promise.resolve(false)),
-      getActiveRoundByGroup: mock(() => Promise.resolve(null)),
-      cancelRound: mock(() => Promise.resolve({ id: 'round-1', topic: 'Test Topic', timeframe: 'tomorrow' })),
+    reposMock = {
+      groups: {
+        findByTelegramId: mock(() => Promise.resolve(null)),
+      } as any,
+      members: {
+        isOptedIn: mock(() => Promise.resolve(false)),
+      } as any,
+      rounds: {
+        findActiveByGroup: mock(() => Promise.resolve(null)),
+        cancel: mock(() => Promise.resolve({ id: 'round-1', topic: 'Test Topic', timeframe: 'tomorrow' })),
+      } as any,
+      responses: {} as any,
+      nluQueue: {} as any,
+      nudges: {} as any,
     };
     nluServiceMock = {
       parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
     };
-    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
+    handlers = new BotHandlers(reposMock, nluServiceMock);
     ctxMock = {
       chat: { id: 123, type: 'group' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
@@ -43,35 +52,35 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
   });
 
   test('should fail if group is not registered', async () => {
-    dbServiceMock.getGroupByTelegramId.mockReturnValue(Promise.resolve(null));
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve(null));
     await handlers.handleCancel(ctxMock);
     expect(ctxMock.reply).toHaveBeenCalledWith('This group is not registered. Use /start to register it.');
   });
 
   test('should fail if user is not opted-in', async () => {
-    dbServiceMock.getGroupByTelegramId.mockReturnValue(Promise.resolve({ id: 'group-1' }));
-    dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(false));
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve({ id: 'group-1' }));
+    reposMock.members.isOptedIn = mock(() => Promise.resolve(false));
     await handlers.handleCancel(ctxMock);
     expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('you must opt-in first'));
   });
 
   test('should fail if no active round exists', async () => {
-    dbServiceMock.getGroupByTelegramId.mockReturnValue(Promise.resolve({ id: 'group-1' }));
-    dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(true));
-    dbServiceMock.getActiveRoundByGroup.mockReturnValue(Promise.resolve(null));
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve({ id: 'group-1' }));
+    reposMock.members.isOptedIn = mock(() => Promise.resolve(true));
+    reposMock.rounds.findActiveByGroup = mock(() => Promise.resolve(null));
     await handlers.handleCancel(ctxMock);
     expect(ctxMock.reply).toHaveBeenCalledWith('No active scheduling round to cancel in this group.');
   });
 
   test('should successfully cancel an active round', async () => {
-    const activeRound = { id: 'round-1', topic: 'Meeting Topic', timeframe: 'next week' };
-    dbServiceMock.getGroupByTelegramId.mockReturnValue(Promise.resolve({ id: 'group-1' }));
-    dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(true));
-    dbServiceMock.getActiveRoundByGroup.mockReturnValue(Promise.resolve(activeRound));
+    const activeRound = { id: 'round-1', topic: 'Meeting Topic', timeframe: 'next week', status: 'active' };
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve({ id: 'group-1' }));
+    reposMock.members.isOptedIn = mock(() => Promise.resolve(true));
+    reposMock.rounds.findActiveByGroup = mock(() => Promise.resolve(activeRound));
 
     await handlers.handleCancel(ctxMock);
 
-    expect(dbServiceMock.cancelRound).toHaveBeenCalledWith('round-1');
+    expect(reposMock.rounds.cancel).toHaveBeenCalledWith('round-1');
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Scheduling Round Cancelled'),
       expect.objectContaining({ parse_mode: 'Markdown' })
@@ -84,27 +93,36 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
 });
 
 describe('BotHandlers.handleSchedule (Story 4.1)', () => {
-  let dbServiceMock: any;
+  let reposMock: Repositories;
   let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
   beforeEach(() => {
-    dbServiceMock = {
-      getGroupByTelegramId: mock(() => Promise.resolve({ id: 'group-1' })),
-      isMemberOptedIn: mock(() => Promise.resolve(true)),
-      getActiveRoundByGroup: mock(() => Promise.resolve(null)),
-      createSchedulingRound: mock((groupId, topic, timeframe) =>
-        Promise.resolve({ id: 'round-1', groupId, topic, timeframe })),
-      getOptedInMembers: mock(() => Promise.resolve([
-        { userId: 'user-1' },
-        { userId: 'user-2' }
-      ])),
+    reposMock = {
+      groups: {
+        findByTelegramId: mock(() => Promise.resolve({ id: 'group-1' })),
+      } as any,
+      members: {
+        isOptedIn: mock(() => Promise.resolve(true)),
+        findOptedInByGroup: mock(() => Promise.resolve([
+          { userId: 'user-1' },
+          { userId: 'user-2' }
+        ])),
+      } as any,
+      rounds: {
+        findActiveByGroup: mock(() => Promise.resolve(null)),
+        create: mock((groupId, topic, timeframe) =>
+          Promise.resolve({ id: 'round-1', groupId, topic, timeframe })),
+      } as any,
+      responses: {} as any,
+      nluQueue: {} as any,
+      nudges: {} as any,
     };
     nluServiceMock = {
       parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
     };
-    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
+    handlers = new BotHandlers(reposMock, nluServiceMock);
     ctxMock = {
       chat: { id: 123, type: 'group' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
@@ -123,7 +141,7 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
     await handlers.handleSchedule(ctxMock);
 
     // Verify round creation
-    expect(dbServiceMock.createSchedulingRound).toHaveBeenCalledWith(
+    expect(reposMock.rounds.create).toHaveBeenCalledWith(
       'group-1',
       'Team Meeting',
       expect.any(String)
@@ -136,7 +154,7 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
     );
 
     // Verify DMs sent to members (Story 4.1)
-    expect(dbServiceMock.getOptedInMembers).toHaveBeenCalledWith('group-1');
+    expect(reposMock.members.findOptedInByGroup).toHaveBeenCalledWith('group-1');
     expect(ctxMock.telegram.sendMessage).toHaveBeenCalledTimes(2);
     expect(ctxMock.telegram.sendMessage).toHaveBeenCalledWith(
       'user-1',
@@ -151,13 +169,13 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
   });
 
   test('should fail if user is not opted-in', async () => {
-    dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(false));
+    reposMock.members.isOptedIn = mock(() => Promise.resolve(false));
     await handlers.handleSchedule(ctxMock);
     expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('you must opt-in first'));
   });
 
   test('should fail if an active round already exists', async () => {
-    dbServiceMock.getActiveRoundByGroup.mockReturnValue(Promise.resolve({ topic: 'Existing' }));
+    reposMock.rounds.findActiveByGroup = mock(() => Promise.resolve({ topic: 'Existing' }));
     await handlers.handleSchedule(ctxMock);
     expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('already an active scheduling round'));
   });
@@ -180,31 +198,37 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
 });
 
 describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
-  let dbServiceMock: any;
+  let reposMock: Repositories;
   let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
   beforeEach(() => {
-    dbServiceMock = {
-      getPendingAvailabilityResponse: mock(() => Promise.resolve(null)),
-      confirmAvailabilityResponse: mock(() => Promise.resolve({})),
-      updateAvailabilityResponse: mock(() => Promise.resolve({})),
-      createAvailabilityResponse: mock(() => Promise.resolve({})),
-      getVagueResponseCount: mock(() => Promise.resolve(0)),
-      updateAvailabilityResponseStatus: mock(() => Promise.resolve({})),
-      queuePendingNLURequest: mock(() => Promise.resolve({})),
-      getPrisma: mock(() => ({
-        member: {
-          findMany: mock(() => Promise.resolve([{ groupId: 'group-1' }]))
-        }
-      })),
-      getActiveRoundByGroup: mock(() => Promise.resolve({ id: 'round-1' })),
+    reposMock = {
+      groups: {} as any,
+      members: {
+        findByUserId: mock(() => Promise.resolve([{ groupId: 'group-1' }])),
+      } as any,
+      rounds: {
+        findActiveByGroup: mock(() => Promise.resolve({ id: 'round-1' })),
+      } as any,
+      responses: {
+        findPendingByUser: mock(() => Promise.resolve(null)),
+        confirm: mock(() => Promise.resolve({})),
+        update: mock(() => Promise.resolve({})),
+        create: mock(() => Promise.resolve({})),
+        countVagueResponses: mock(() => Promise.resolve(0)),
+        updateStatus: mock(() => Promise.resolve({})),
+      } as any,
+      nluQueue: {
+        queue: mock(() => Promise.resolve({})),
+      } as any,
+      nudges: {} as any,
     };
     nluServiceMock = {
       parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
     };
-    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
+    handlers = new BotHandlers(reposMock, nluServiceMock);
     ctxMock = {
       chat: { id: 456, type: 'private' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
@@ -216,7 +240,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   test('should handle new availability response and send confirmation request', async () => {
     await handlers.handleAvailabilityResponse(ctxMock);
 
-    expect(dbServiceMock.createAvailabilityResponse).toHaveBeenCalled();
+    expect(reposMock.responses.create).toHaveBeenCalled();
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Is this correct? Reply **"yes"** to confirm'),
       expect.any(Object)
@@ -232,7 +256,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   });
 
   test('should confirm availability when user says "yes"', async () => {
-    dbServiceMock.getPendingAvailabilityResponse.mockReturnValue(Promise.resolve({
+    reposMock.responses.findPendingByUser = mock(() => Promise.resolve({
       roundId: 'round-1',
       userId: '456'
     }));
@@ -240,7 +264,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
 
     await handlers.handleAvailabilityResponse(ctxMock);
 
-    expect(dbServiceMock.confirmAvailabilityResponse).toHaveBeenCalledWith('round-1', '456');
+    expect(reposMock.responses.confirm).toHaveBeenCalledWith('round-1', '456');
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Availability Confirmed!'),
       expect.any(Object)
@@ -248,7 +272,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   });
 
   test('should re-parse and ask for confirmation when user provides correction', async () => {
-    dbServiceMock.getPendingAvailabilityResponse.mockReturnValue(Promise.resolve({
+    reposMock.responses.findPendingByUser = mock(() => Promise.resolve({
       roundId: 'round-1',
       userId: '456'
     }));
@@ -256,7 +280,7 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
 
     await handlers.handleAvailabilityResponse(ctxMock);
 
-    expect(dbServiceMock.updateAvailabilityResponse).toHaveBeenCalled();
+    expect(reposMock.responses.update).toHaveBeenCalled();
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Tuesday'),
       expect.any(Object)
@@ -271,12 +295,9 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
     // Mock nluService.parseAvailability to throw an error
     (handlers as any).nluService.parseAvailability = mock(() => Promise.reject(new Error('API Unavailable')));
 
-    // Add required db method for this test
-    dbServiceMock.queuePendingNLURequest = mock(() => Promise.resolve({}));
-
     await handlers.handleAvailabilityResponse(ctxMock);
 
-    expect(dbServiceMock.queuePendingNLURequest).toHaveBeenCalledWith(
+    expect(reposMock.nluQueue.queue).toHaveBeenCalledWith(
       'round-1',
       '456',
       'I am free Monday at 6pm',
