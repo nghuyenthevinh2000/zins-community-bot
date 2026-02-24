@@ -219,29 +219,6 @@ describe('Prevent Duplicate Scheduling Rounds (Story 3.2)', () => {
     }
   });
 
-  test('should allow new round after previous round is cancelled', async () => {
-    const group = await db.findOrCreateGroup('cancel-then-new-group', 'Cancel Then New Group');
-    
-    // Create first round
-    const firstRound = await db.createSchedulingRound(group.id, 'First Meeting', 'today');
-    
-    // Cancel the first round
-    await db.cancelRound(firstRound.id);
-    
-    // Verify no active rounds
-    let activeRound = await db.getActiveRoundByGroup(group.id);
-    expect(activeRound).toBeNull();
-    
-    // Now create a new round
-    const secondRound = await db.createSchedulingRound(group.id, 'Second Meeting', 'tomorrow');
-    expect(secondRound.status).toBe('active');
-    expect(secondRound.topic).toBe('Second Meeting');
-    
-    // Verify it's the active one
-    activeRound = await db.getActiveRoundByGroup(group.id);
-    expect(activeRound!.id).toBe(secondRound.id);
-  });
-
   test('should allow new round after previous round is confirmed', async () => {
     const group = await db.findOrCreateGroup('confirm-then-new-group', 'Confirm Then New Group');
     
@@ -309,5 +286,46 @@ describe('Prevent Duplicate Scheduling Rounds (Story 3.2)', () => {
     // Both groups now have their own active rounds
     expect((await db.getActiveRoundByGroup(group1.id))!.topic).toBe('Group 1 Meeting');
     expect((await db.getActiveRoundByGroup(group2.id))!.topic).toBe('Group 2 Meeting');
+  });
+});
+
+describe('Cancel an Active Scheduling Round (Story 3.3)', () => {
+  test('should cancel an active scheduling round', async () => {
+    const group = await db.findOrCreateGroup('cancel-group', 'Cancel Group');
+    const round = await db.createSchedulingRound(group.id, 'Cancel Me', 'tomorrow');
+    
+    // Verify it's active
+    let activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).not.toBeNull();
+    expect(activeRound!.id).toBe(round.id);
+    
+    // Cancel it
+    await db.cancelRound(round.id);
+    
+    // Verify it's no longer active
+    activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound).toBeNull();
+    
+    // Verify status in all rounds
+    const allRounds = await db.getAllRoundsByGroup(group.id);
+    expect(allRounds[0].status).toBe('cancelled');
+  });
+
+  test('should allow new round after previous round is cancelled', async () => {
+    const group = await db.findOrCreateGroup('cancel-then-new-group-3.3', 'Cancel Then New Group 3.3');
+    
+    // Create first round
+    const firstRound = await db.createSchedulingRound(group.id, 'First Meeting', 'today');
+    
+    // Cancel the first round
+    await db.cancelRound(firstRound.id);
+    
+    // Now create a new round
+    const secondRound = await db.createSchedulingRound(group.id, 'Second Meeting', 'tomorrow');
+    expect(secondRound.status).toBe('active');
+    
+    // Verify it's the active one
+    const activeRound = await db.getActiveRoundByGroup(group.id);
+    expect(activeRound!.id).toBe(secondRound.id);
   });
 });
