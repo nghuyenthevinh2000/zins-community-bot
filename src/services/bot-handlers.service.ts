@@ -656,4 +656,111 @@ export class BotHandlers {
 
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
+
+  // Story 5.2: Handle /settings command
+  async handleSettings(ctx: Context): Promise<void> {
+    const chat = ctx.chat;
+    if (!chat || chat.type === 'private') {
+      await ctx.reply('This command only works in group chats.');
+      return;
+    }
+
+    const user = ctx.from;
+    if (!user) {
+      await ctx.reply('Unable to identify user.');
+      return;
+    }
+
+    const group = await this.db.getGroupByTelegramId(chat.id.toString());
+    if (!group) {
+      await ctx.reply('This group is not registered. Use /start to register it.');
+      return;
+    }
+
+    // Check if user is opted-in
+    const isOptedIn = await this.db.isMemberOptedIn(user.id.toString(), group.id);
+    if (!isOptedIn) {
+      await ctx.reply(
+        `❌ @${user.username || user.first_name}, you must opt-in first to change group settings.\n` +
+        `Use the opt-in button or message me directly.`
+      );
+      return;
+    }
+
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    const args = messageText.split(' ').slice(1); // Remove command
+
+    // Get current settings
+    const settings = await this.db.getNudgeSettings(group.id);
+
+    // If no arguments, show current settings
+    if (args.length === 0) {
+      await ctx.reply(
+        `⚙️ **Group Settings**\n\n` +
+        `**Nudge Settings (Story 5.2):**\n` +
+        `• Interval: ${settings.nudgeIntervalHours} hours\n` +
+        `• Max Nudges: ${settings.maxNudgeCount}\n\n` +
+        `**To change settings:**\n` +
+        `/settings nudge_interval <hours>\n` +
+        `/settings max_nudges <count>\n\n` +
+        `**Examples:**\n` +
+        `/settings nudge_interval 12\n` +
+        `/settings max_nudges 5`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Parse settings command
+    const settingName = args[0];
+    const settingValue = parseInt(args[1], 10);
+
+    if (isNaN(settingValue)) {
+      await ctx.reply(
+        `❌ Invalid value. Please provide a number.\n\n` +
+        `**Usage:**\n` +
+        `/settings nudge_interval <hours>\n` +
+        `/settings max_nudges <count>`
+      );
+      return;
+    }
+
+    // Validate and update settings
+    if (settingName === 'nudge_interval') {
+      if (settingValue < 1 || settingValue > 168) {
+        await ctx.reply(
+          `❌ Invalid interval. Must be between 1 and 168 hours (1 week).`
+        );
+        return;
+      }
+
+      await this.db.updateNudgeSettings(group.id, settingValue, settings.maxNudgeCount);
+      await ctx.reply(
+        `✅ **Setting Updated**\n\n` +
+        `Nudge interval changed to ${settingValue} hours.\n\n` +
+        `Members will now be reminded every ${settingValue} hours if they haven't responded.`
+      );
+    } else if (settingName === 'max_nudges') {
+      if (settingValue < 1 || settingValue > 10) {
+        await ctx.reply(
+          `❌ Invalid count. Must be between 1 and 10.`
+        );
+        return;
+      }
+
+      await this.db.updateNudgeSettings(group.id, settings.nudgeIntervalHours, settingValue);
+      await ctx.reply(
+        `✅ **Setting Updated**\n\n` +
+        `Maximum nudges changed to ${settingValue}.\n\n` +
+        `The bot will send up to ${settingValue} reminders to non-responders.`
+      );
+    } else {
+      await ctx.reply(
+        `❌ Unknown setting: ${settingName}\n\n` +
+        `**Available settings:**\n` +
+        `• nudge_interval - Hours between nudges (1-168)\n` +
+        `• max_nudges - Maximum nudges to send (1-10)`
+      );
+    }
+  }
 }
