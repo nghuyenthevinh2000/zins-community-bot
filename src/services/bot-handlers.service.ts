@@ -5,8 +5,8 @@ import { OpenCodeNLUService } from './opencode-nlu.service';
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
 
-  constructor(private db: DatabaseService) {
-    this.nluService = new OpenCodeNLUService();
+  constructor(private db: DatabaseService, nluService?: OpenCodeNLUService) {
+    this.nluService = nluService || new OpenCodeNLUService();
   }
 
   async handleStart(ctx: Context): Promise<void> {

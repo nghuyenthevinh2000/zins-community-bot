@@ -4,6 +4,7 @@ import { DatabaseService } from './database.service';
 
 describe('BotHandlers.handleCancel (Story 3.3)', () => {
   let dbServiceMock: any;
+  let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
@@ -14,7 +15,10 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
       getActiveRoundByGroup: mock(() => Promise.resolve(null)),
       cancelRound: mock(() => Promise.resolve({ id: 'round-1', topic: 'Test Topic', timeframe: 'tomorrow' })),
     };
-    handlers = new BotHandlers(dbServiceMock as any);
+    nluServiceMock = {
+      parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
+    };
+    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
     ctxMock = {
       chat: { id: 123, type: 'group' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
@@ -71,6 +75,7 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
 
 describe('BotHandlers.handleSchedule (Story 4.1)', () => {
   let dbServiceMock: any;
+  let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
@@ -86,7 +91,10 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
         { userId: 'user-2' }
       ])),
     };
-    handlers = new BotHandlers(dbServiceMock as any);
+    nluServiceMock = {
+      parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
+    };
+    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
     ctxMock = {
       chat: { id: 123, type: 'group' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
@@ -163,6 +171,7 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
 
 describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   let dbServiceMock: any;
+  let nluServiceMock: any;
   let handlers: BotHandlers;
   let ctxMock: any;
 
@@ -172,6 +181,9 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
       confirmAvailabilityResponse: mock(() => Promise.resolve({})),
       updateAvailabilityResponse: mock(() => Promise.resolve({})),
       createAvailabilityResponse: mock(() => Promise.resolve({})),
+      getVagueResponseCount: mock(() => Promise.resolve(0)),
+      updateAvailabilityResponseStatus: mock(() => Promise.resolve({})),
+      queuePendingNLURequest: mock(() => Promise.resolve({})),
       getPrisma: mock(() => ({
         member: {
           findMany: mock(() => Promise.resolve([{ groupId: 'group-1' }]))
@@ -179,11 +191,14 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
       })),
       getActiveRoundByGroup: mock(() => Promise.resolve({ id: 'round-1' })),
     };
-    handlers = new BotHandlers(dbServiceMock as any);
+    nluServiceMock = {
+      parseAvailability: mock(() => Promise.resolve({ success: false, error: 'Mocked failure' })),
+    };
+    handlers = new BotHandlers(dbServiceMock as any, nluServiceMock as any);
     ctxMock = {
       chat: { id: 456, type: 'private' },
       from: { id: 456, first_name: 'TestUser', username: 'testuser' },
-      message: { text: 'I am free Monday' },
+      message: { text: 'I am free Monday at 6pm' },
       reply: mock(() => Promise.resolve({})),
     };
   });
@@ -198,6 +213,10 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
       expect.stringContaining('Monday'),
+      expect.any(Object)
+    );
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('6pm'),
       expect.any(Object)
     );
   });
