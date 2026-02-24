@@ -68,3 +68,95 @@ describe('BotHandlers.handleCancel (Story 3.3)', () => {
     );
   });
 });
+
+describe('BotHandlers.handleSchedule (Story 4.1)', () => {
+  let dbServiceMock: any;
+  let handlers: BotHandlers;
+  let ctxMock: any;
+
+  beforeEach(() => {
+    dbServiceMock = {
+      getGroupByTelegramId: mock(() => Promise.resolve({ id: 'group-1' })),
+      isMemberOptedIn: mock(() => Promise.resolve(true)),
+      getActiveRoundByGroup: mock(() => Promise.resolve(null)),
+      createSchedulingRound: mock((groupId, topic, timeframe) => 
+        Promise.resolve({ id: 'round-1', groupId, topic, timeframe })),
+      getOptedInMembers: mock(() => Promise.resolve([
+        { userId: 'user-1' },
+        { userId: 'user-2' }
+      ])),
+    };
+    handlers = new BotHandlers(dbServiceMock as any);
+    ctxMock = {
+      chat: { id: 123, type: 'group' },
+      from: { id: 456, first_name: 'TestUser', username: 'testuser' },
+      message: { text: '/schedule "Team Meeting"' },
+      reply: mock(() => Promise.resolve({})),
+      telegram: {
+        sendMessage: mock(() => Promise.resolve({})),
+      },
+    };
+    
+    // Mock global setTimeout to avoid waiting during tests
+    global.setTimeout = ((fn: any) => { fn(); return {} as any; }) as any;
+  });
+
+  test('should successfully start a round and send DMs to all opted-in members', async () => {
+    await handlers.handleSchedule(ctxMock);
+    
+    // Verify round creation
+    expect(dbServiceMock.createSchedulingRound).toHaveBeenCalledWith(
+      'group-1', 
+      'Team Meeting', 
+      expect.any(String)
+    );
+    
+    // Verify confirmation message in group
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Scheduling Round Started!'),
+      expect.any(Object)
+    );
+    
+    // Verify DMs sent to members (Story 4.1)
+    expect(dbServiceMock.getOptedInMembers).toHaveBeenCalledWith('group-1');
+    expect(ctxMock.telegram.sendMessage).toHaveBeenCalledTimes(2);
+    expect(ctxMock.telegram.sendMessage).toHaveBeenCalledWith(
+      'user-1',
+      expect.stringContaining('Team Meeting'),
+      expect.any(Object)
+    );
+    expect(ctxMock.telegram.sendMessage).toHaveBeenCalledWith(
+      'user-2',
+      expect.stringContaining('Team Meeting'),
+      expect.any(Object)
+    );
+  });
+
+  test('should fail if user is not opted-in', async () => {
+    dbServiceMock.isMemberOptedIn.mockReturnValue(Promise.resolve(false));
+    await handlers.handleSchedule(ctxMock);
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('you must opt-in first'));
+  });
+
+  test('should fail if an active round already exists', async () => {
+    dbServiceMock.getActiveRoundByGroup.mockReturnValue(Promise.resolve({ topic: 'Existing' }));
+    await handlers.handleSchedule(ctxMock);
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('already an active scheduling round'));
+  });
+
+  test('should parse topic and timeframe correctly', () => {
+    // Access private method for testing
+    const parsed = (handlers as any).parseScheduleCommand('/schedule "Team sync" on next Monday');
+    expect(parsed).toEqual({ topic: 'Team sync', timeframe: 'next Monday' });
+  });
+
+  test('should parse topic without timeframe', () => {
+    const parsed = (handlers as any).parseScheduleCommand('/schedule "Quick sync"');
+    expect(parsed).toEqual({ topic: 'Quick sync', timeframe: 'the upcoming days' });
+  });
+
+  test('should handle unquoted topic', () => {
+    const parsed = (handlers as any).parseScheduleCommand('/schedule standup on tomorrow');
+    expect(parsed).toEqual({ topic: 'standup', timeframe: 'tomorrow' });
+  });
+});

@@ -194,9 +194,24 @@ export class BotHandlers {
   }
 
   private parseScheduleCommand(text: string): { topic: string; timeframe: string } | null {
-    const match = text.match(/^\/schedule\s+(.+)$/i);
-    if (match && match[1]) {
-      let topic = match[1].trim();
+    // Try to parse both topic and timeframe: /schedule "topic" on timeframe
+    const fullMatch = text.match(/^\/schedule\s+(.+?)\s+on\s+(.+)$/i);
+    if (fullMatch) {
+      let topic = fullMatch[1].trim();
+      let timeframe = fullMatch[2].trim();
+
+      // Remove surrounding quotes from topic if they exist
+      if ((topic.startsWith('"') && topic.endsWith('"')) || (topic.startsWith("'") && topic.endsWith("'"))) {
+        topic = topic.slice(1, -1);
+      }
+
+      return { topic, timeframe };
+    }
+
+    // Fallback to just topic: /schedule "topic"
+    const topicMatch = text.match(/^\/schedule\s+(.+)$/i);
+    if (topicMatch) {
+      let topic = topicMatch[1].trim();
 
       // Remove surrounding quotes if they exist
       if ((topic.startsWith('"') && topic.endsWith('"')) || (topic.startsWith("'") && topic.endsWith("'"))) {
@@ -205,7 +220,7 @@ export class BotHandlers {
 
       return {
         topic,
-        timeframe: 'TBD' // Default timeframe since user no longer requires it
+        timeframe: 'the upcoming days' // Default timeframe
       };
     }
 
