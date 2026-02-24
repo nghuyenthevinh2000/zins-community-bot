@@ -82,6 +82,9 @@ describe('Natural Language Availability Parsing (Story 4.2)', () => {
     expect(afternoonResult.parsed![0].startTime.getHours()).toBe(12);
 
     const eveningResult = await nlu.parseAvailability("Wednesday evening", referenceDate);
+    if (!eveningResult.parsed || eveningResult.parsed.length === 0) {
+      console.log('Evening Result failed:', JSON.stringify(eveningResult, null, 2));
+    }
     expect(eveningResult.parsed![0].startTime.getHours()).toBe(18);
   }, 99999);
 

@@ -51,8 +51,8 @@ Rules:
 - Convert relative dates (Tuesday, next week) to absolute dates based on the reference date
 - If a time range is not specified, assume reasonable defaults (e.g., "morning" = 9am-12pm, "afternoon" = 12pm-6pm, "evening" = 6pm-10pm)
 - "All day" means 9am to 6pm
-- If the text is too vague to extract specific times, set "isVague": true inside the JSON or return an empty array
-- Always return valid JSON, no markdown formatting
+- If the text is too vague to extract specific times, set "isVague": true inside the JSON and return it as the first item of an array, or return an empty array []
+- Always return valid JSON as a plain array [], no markdown formatting, no conversational text.
 
 Reference date: ${referenceDate.toISOString()}
 Text to parse: ${text}`;
