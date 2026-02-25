@@ -56,4 +56,21 @@ export class GroupRepository {
       maxNudgeCount: group?.maxNudgeCount ?? 3
     };
   }
+
+  // Story 6.1: Consensus threshold settings
+  async updateConsensusThreshold(groupId: string, threshold: number): Promise<Group> {
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: { consensusThreshold: threshold }
+    });
+  }
+
+  async getConsensusThreshold(groupId: string): Promise<number> {
+    const group = await this.prisma.group.findUnique({
+      where: { id: groupId },
+      select: { consensusThreshold: true }
+    });
+
+    return group?.consensusThreshold ?? 75;
+  }
 }

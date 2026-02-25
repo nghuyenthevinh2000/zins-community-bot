@@ -16,6 +16,9 @@ model Group {
   nudgeIntervalHours Int     @default(24) @map("nudge_interval_hours")
   maxNudgeCount     Int      @default(3) @map("max_nudge_count")
   
+  // Story 6.1: Configurable consensus threshold
+  consensusThreshold Int     @default(75) @map("consensus_threshold")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   
@@ -57,6 +60,7 @@ model SchedulingRound {
   availabilityResponses AvailabilityResponse[]
   pendingNLURequests PendingNLURequest[]
   nudgeTrackings    NudgeTracking[]
+  consensusResult   ConsensusResult?
   
   @@index([groupId])
   @@index([groupId, status])
@@ -139,4 +143,30 @@ model NudgeHistory {
   @@index([userId])
   @@index([groupId, userId, roundId])
   @@map("nudge_history")
+}
+
+// Story 6.1: Consensus Result model
+model ConsensusResult {
+  id                String   @id @default(uuid())
+  roundId           String   @unique @map("round_id")
+  status            String   @default("pending") // pending, achieved, failed
+  
+  // When consensus is achieved
+  confirmedTimeSlot Json?    @map("confirmed_time_slot") // { startTime, endTime, day }
+  consensusPercentage Float? @map("consensus_percentage")
+  respondersCount   Int?     @map("responders_count")
+  totalOptedInCount Int?     @map("total_opted_in_count")
+  confirmedAt       DateTime? @map("confirmed_at")
+  
+  // If no consensus achieved
+  bestTimeSlots     Json?    @map("best_time_slots") // Array of top overlapping slots
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  @@index([roundId])
+  @@index([status])
+  @@map("consensus_results")
 }

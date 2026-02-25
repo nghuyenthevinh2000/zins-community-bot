@@ -7,6 +7,7 @@ import {
   ResponseRepository,
   NLUQueueRepository,
   NudgeRepository,
+  ConsensusRepository,
   getPrismaClient
 } from './db';
 import { BotHandlers } from './services/bot-handlers.service';
@@ -28,7 +29,8 @@ const repositories = {
   rounds: new RoundRepository(),
   responses: new ResponseRepository(),
   nluQueue: new NLUQueueRepository(),
-  nudges: new NudgeRepository()
+  nudges: new NudgeRepository(),
+  consensus: new ConsensusRepository()
 };
 
 const handlers = new BotHandlers(repositories);

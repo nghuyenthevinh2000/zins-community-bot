@@ -1,12 +1,14 @@
 import { Context } from 'telegraf';
 import { OpenCodeNLUService } from './opencode-nlu.service';
+import { ConsensusService, type ConsensusRepositories } from './consensus.service';
 import {
   GroupRepository,
   MemberRepository,
   RoundRepository,
   ResponseRepository,
   NLUQueueRepository,
-  NudgeRepository
+  NudgeRepository,
+  ConsensusRepository
 } from '../db';
 
 export interface Repositories {
@@ -16,13 +18,16 @@ export interface Repositories {
   responses: ResponseRepository;
   nluQueue: NLUQueueRepository;
   nudges: NudgeRepository;
+  consensus: ConsensusRepository;
 }
 
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
+  private consensusService: ConsensusService;
 
   constructor(private repos: Repositories, nluService?: OpenCodeNLUService) {
     this.nluService = nluService || new OpenCodeNLUService();
+    this.consensusService = new ConsensusService(repos);
   }
 
   async handleStart(ctx: Context): Promise<void> {
@@ -443,11 +448,32 @@ You will now receive DMs when a new scheduling round starts.`);
       if (normalizedText === 'yes' || normalizedText === 'y' || normalizedText === 'correct' || normalizedText === 'right') {
         // Story 4.3: Confirm the availability
         await this.repos.responses.confirm(pendingResponse.roundId, userId);
-        await ctx.reply(
-          `✅ **Availability Confirmed!**\n\n` +
-          `Your availability has been recorded. Thank you!`,
-          { parse_mode: 'Markdown' }
-        );
+        
+        // Story 6.1: Recalculate consensus immediately after confirmation
+        const roundId = pendingResponse.roundId;
+        const consensusResult = await this.consensusService.calculateConsensus(roundId);
+        
+        if (consensusResult.achieved) {
+          // Story 6.1: Consensus achieved! Notify the user
+          const timeSlot = consensusResult.timeSlot!;
+          await ctx.reply(
+            `🎉 **Great news!**\n\n` +
+            `The meeting has been confirmed based on your availability and others':\n\n` +
+            `📅 **${timeSlot.day}**\n` +
+            `🕐 **${timeSlot.startTime} - ${timeSlot.endTime}**\n\n` +
+            `(${Math.round(consensusResult.percentage)}% of members can attend)`,
+            { parse_mode: 'Markdown' }
+          );
+          
+          // Announce in the group chat
+          await this.announceMeetingConfirmed(roundId, timeSlot, consensusResult.percentage);
+        } else {
+          await ctx.reply(
+            `✅ **Availability Confirmed!**\n\n` +
+            `Your availability has been recorded. Thank you!`,
+            { parse_mode: 'Markdown' }
+          );
+        }
         return;
       } else {
         // Story 4.3: User is correcting their availability - re-parse and confirm again
@@ -626,5 +652,38 @@ You will now receive DMs when a new scheduling round starts.`);
     interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
 
     await ctx.reply(interpretation, { parse_mode: 'Markdown' });
+  }
+
+  // Story 6.1: Announce meeting confirmation in the group chat
+  private async announceMeetingConfirmed(
+    roundId: string,
+    timeSlot: { day: string; startTime: string; endTime: string },
+    percentage: number
+  ): Promise<void> {
+    try {
+      const round = await this.repos.rounds.findById(roundId);
+      if (!round) {
+        console.error(`Cannot announce meeting: Round ${roundId} not found`);
+        return;
+      }
+
+      const group = await this.repos.groups.findById(round.groupId);
+      if (!group) {
+        console.error(`Cannot announce meeting: Group ${round.groupId} not found`);
+        return;
+      }
+
+      // Get the Telegram bot instance from somewhere - this is a placeholder
+      // In a real implementation, we'd need access to the bot instance
+      console.log(`[Story 6.1] Would announce in group ${group.telegramId}:`);
+      console.log(`  Topic: ${round.topic}`);
+      console.log(`  Time: ${timeSlot.day} ${timeSlot.startTime} - ${timeSlot.endTime}`);
+      console.log(`  Consensus: ${Math.round(percentage)}%`);
+      
+      // The actual announcement would be:
+      // await bot.telegram.sendMessage(group.telegramId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      console.error('Failed to announce meeting confirmation:', error);
+    }
   }
 }
