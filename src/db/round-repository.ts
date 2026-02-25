@@ -60,6 +60,38 @@ export class RoundRepository {
     });
   }
 
+  // Story 6.4: Increment retry count and reset for alternative availability
+  async incrementRetryCount(roundId: string): Promise<SchedulingRound> {
+    const round = await this.findById(roundId);
+    if (!round) throw new Error('Round not found');
+    
+    return this.prisma.schedulingRound.update({
+      where: { id: roundId },
+      data: { 
+        retryCount: { increment: 1 }
+      }
+    });
+  }
+
+  async resetForRetry(roundId: string): Promise<SchedulingRound> {
+    return this.prisma.schedulingRound.update({
+      where: { id: roundId },
+      data: { 
+        retryCount: { increment: 1 },
+        // Keep status as 'active' to continue collection
+      }
+    });
+  }
+
+  async markAsNoConsensus(roundId: string): Promise<SchedulingRound> {
+    return this.prisma.schedulingRound.update({
+      where: { id: roundId },
+      data: { 
+        status: 'no_consensus'
+      }
+    });
+  }
+
   async findAllActive(): Promise<SchedulingRound[]> {
     return this.prisma.schedulingRound.findMany({
       where: { status: 'active' },
