@@ -138,6 +138,7 @@ export class ConsensusService {
       const endTime = this.parseDayToDate(dayData.day, '6pm');
 
       return {
+        day: dayData.day,
         startTime,
         endTime,
         attendeeUserIds: Array.from(dayData.userIds),

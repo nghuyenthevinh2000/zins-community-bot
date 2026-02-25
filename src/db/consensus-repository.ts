@@ -2,6 +2,7 @@ import { PrismaClient, type ConsensusResult } from '@prisma/client';
 import { getPrismaClient } from './client';
 
 export interface TimeSlot {
+  day: string;
   startTime: Date;
   endTime: Date;
   attendeeUserIds: string[];
