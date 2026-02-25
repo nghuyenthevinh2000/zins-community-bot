@@ -205,12 +205,17 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
 
   beforeEach(() => {
     reposMock = {
-      groups: {} as any,
+      groups: {
+        findById: mock(() => Promise.resolve({ id: 'group-1', consensusThreshold: 75 }))
+      } as any,
       members: {
         findByUserId: mock(() => Promise.resolve([{ groupId: 'group-1' }])),
+        countOptedInByGroup: mock(() => Promise.resolve(4))
       } as any,
       rounds: {
         findActiveByGroup: mock(() => Promise.resolve({ id: 'round-1' })),
+        findById: mock(() => Promise.resolve({ id: 'round-1', groupId: 'group-1' })),
+        confirm: mock(() => Promise.resolve())
       } as any,
       responses: {
         findPendingByUser: mock(() => Promise.resolve(null)),
@@ -219,6 +224,11 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
         create: mock(() => Promise.resolve({})),
         countVagueResponses: mock(() => Promise.resolve(0)),
         updateStatus: mock(() => Promise.resolve({})),
+        findConfirmedByRound: mock(() => Promise.resolve([]))
+      } as any,
+      consensus: {
+        updateAchieved: mock(() => Promise.resolve()),
+        updateFailed: mock(() => Promise.resolve())
       } as any,
       nluQueue: {
         queue: mock(() => Promise.resolve({})),
