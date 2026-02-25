@@ -1,87 +1,178 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { PrismaClient } from '@prisma/client';
 import { ConsensusService } from './consensus.service';
+import { RoundRepository } from '../db/round-repository';
+import { MemberRepository } from '../db/member-repository';
+import { ResponseRepository } from '../db/response-repository';
+import { GroupRepository } from '../db/group-repository';
+import { ConsensusRepository } from '../db/consensus-repository';
 
-describe('ConsensusService (Story 6.1)', () => {
-  let reposMock: any;
-  let service: ConsensusService;
+const prisma = new PrismaClient();
+const roundRepo = new RoundRepository();
+const memberRepo = new MemberRepository();
+const responseRepo = new ResponseRepository();
+const groupRepo = new GroupRepository();
+const consensusRepo = new ConsensusRepository();
 
-  beforeEach(() => {
-    reposMock = {
-      groups: {
-        findById: mock(() => Promise.resolve({ id: 'group-1', consensusThreshold: 75 }))
-      },
-      members: {
-        countOptedInByGroup: mock(() => Promise.resolve(4))
-      },
-      rounds: {
-        findById: mock(() => Promise.resolve({ id: 'round-1', groupId: 'group-1' })),
-        confirm: mock(() => Promise.resolve())
-      },
-      responses: {
-        findConfirmedByRound: mock(() => Promise.resolve([]))
-      },
-      consensus: {
-        updateAchieved: mock(() => Promise.resolve()),
-        updateFailed: mock(() => Promise.resolve())
-      }
+const consensusService = new ConsensusService({
+  rounds: roundRepo,
+  responses: responseRepo,
+  members: memberRepo,
+  consensus: consensusRepo
+});
+
+describe('ConsensusService (Story 6.1 & 6.2)', () => {
+  beforeEach(async () => {
+    await prisma.availabilityResponse.deleteMany();
+    await prisma.nudgeTracking.deleteMany();
+    await prisma.nudgeHistory.deleteMany();
+    await prisma.pendingNLURequest.deleteMany();
+    await prisma.schedulingRound.deleteMany();
+    await prisma.member.deleteMany();
+    await prisma.group.deleteMany();
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  test('should calculate consensus when threshold is met', async () => {
+    // Create group with 4 opted-in members (75% threshold = 3 members needed)
+    const group = await groupRepo.findOrCreate('consensus-test-group', 'Consensus Test Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+    await memberRepo.optIn('user-4', group.id);
+
+    // 3 users confirm availability for Tuesday
+    await responseRepo.create(round.id, 'user-1', 'Tuesday morning', { days: ['Tuesday'], times: ['9am'], parsed: true });
+    await responseRepo.create(round.id, 'user-2', 'Tuesday afternoon', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.create(round.id, 'user-3', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+
+    // Confirm all responses
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.confirm(round.id, 'user-2');
+    await responseRepo.confirm(round.id, 'user-3');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+
+    expect(consensus.hasConsensus).toBe(true);
+    expect(consensus.totalOptedInMembers).toBe(4);
+    expect(consensus.respondedMembers).toBe(3);
+    expect(consensus.timeSlot).toBeDefined();
+    expect(consensus.timeSlot!.agreementPercentage).toBe(75); // 3/4 = 75%
+  });
+
+  test('should not calculate consensus when below threshold', async () => {
+    const group = await groupRepo.findOrCreate('no-consensus-group', 'No Consensus Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+    await memberRepo.optIn('user-4', group.id);
+
+    // Only 2 users confirm (50% < 75% threshold)
+    await responseRepo.create(round.id, 'user-1', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+    await responseRepo.create(round.id, 'user-2', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.confirm(round.id, 'user-2');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+
+    expect(consensus.hasConsensus).toBe(false);
+    expect(consensus.timeSlot).toBeUndefined();
+  });
+
+  test('should confirm meeting with time slot details', async () => {
+    const group = await groupRepo.findOrCreate('confirm-test-group', 'Confirm Test Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+
+    await responseRepo.create(round.id, 'user-1', 'Tuesday 9am', { days: ['Tuesday'], times: ['9am'], parsed: true });
+    await responseRepo.create(round.id, 'user-2', 'Tuesday 10am', { days: ['Tuesday'], times: ['10am'], parsed: true });
+    await responseRepo.create(round.id, 'user-3', 'Tuesday morning', { days: ['Tuesday'], times: ['morning'], parsed: true });
+
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.confirm(round.id, 'user-2');
+    await responseRepo.confirm(round.id, 'user-3');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(true);
+
+    // Confirm the meeting
+    const confirmed = await consensusService.confirmMeeting(round.id, consensus.timeSlot!);
+    expect(confirmed).toBe(true);
+
+    // Verify round is marked as confirmed
+    const updatedRound = await roundRepo.findById(round.id);
+    expect(updatedRound!.status).toBe('confirmed');
+    expect(updatedRound!.confirmedAt).toBeDefined();
+    expect(updatedRound!.confirmedTimeSlot).toBeDefined();
+  });
+
+  test('should reject meeting confirmation less than 30 minutes away (FR24)', async () => {
+    const group = await groupRepo.findOrCreate('fr24-test-group', 'FR24 Test Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+
+    await responseRepo.create(round.id, 'user-1', 'Today now', { days: ['Today'], times: ['now'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-1');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(true);
+
+    // Set time slot to 15 minutes from now (should be rejected)
+    const soonSlot = {
+      ...consensus.timeSlot!,
+      startTime: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes from now
     };
 
-    service = new ConsensusService(reposMock);
+    const confirmed = await consensusService.confirmMeeting(round.id, soonSlot);
+    expect(confirmed).toBe(false); // Should reject meetings < 30 min away
   });
 
-  test('should calculate consensus and achieve it when >= 75% responders have overlap', async () => {
-    // 4 opted in. 75% of 4 = 3 required for consensus.
-    const responses = [
-      { userId: 'u1', parsedAvailability: { days: ['Monday'], times: ['10:00am'] } },
-      { userId: 'u2', parsedAvailability: { days: ['Monday'], times: ['10:00am'] } },
-      { userId: 'u3', parsedAvailability: { days: ['Monday'], times: ['10:00am'] } }
-    ];
-    
-    reposMock.responses.findConfirmedByRound.mockReturnValue(Promise.resolve(responses));
+  test('should handle incremental consensus calculation (NFR4)', async () => {
+    const group = await groupRepo.findOrCreate('incremental-group', 'Incremental Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
 
-    const result = await service.calculateConsensus('round-1');
+    // 4 members, need 3 for 75%
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+    await memberRepo.optIn('user-4', group.id);
 
-    expect(result.achieved).toBe(true);
-    expect(result.percentage).toBe(75);
-    expect(result.timeSlot?.day).toBe('Monday');
-    expect(result.timeSlot?.userIds.length).toBe(3);
-    
-    expect(reposMock.consensus.updateAchieved).toHaveBeenCalled();
-    expect(reposMock.rounds.confirm).toHaveBeenCalledWith('round-1');
-  });
+    // Initially no consensus (0 responses)
+    let consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(false);
 
-  test('should not achieve consensus if overlap is < threshold', async () => {
-    // 4 opted in. 75% = 3 required. Only 2 have overlap.
-    const responses = [
-      { userId: 'u1', parsedAvailability: { days: ['Monday'], times: ['10:00am'] } },
-      { userId: 'u2', parsedAvailability: { days: ['Monday'], times: ['10:00am'] } }
-    ];
-    
-    reposMock.responses.findConfirmedByRound.mockReturnValue(Promise.resolve(responses));
+    // After 1st response (25%) - no consensus
+    await responseRepo.create(round.id, 'user-1', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+    await responseRepo.confirm(round.id, 'user-1');
+    consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(false);
 
-    const result = await service.calculateConsensus('round-1');
+    // After 2nd response (50%) - no consensus
+    await responseRepo.create(round.id, 'user-2', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+    await responseRepo.confirm(round.id, 'user-2');
+    consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(false);
 
-    expect(result.achieved).toBe(false);
-    expect(result.percentage).toBe(50); // 2 out of 4 is 50%
-    
-    expect(reposMock.consensus.updateFailed).toHaveBeenCalled();
-    expect(reposMock.rounds.confirm).not.toHaveBeenCalled();
-  });
+    // After 3rd response (75%) - consensus reached!
+    await responseRepo.create(round.id, 'user-3', 'Tuesday', { days: ['Tuesday'], times: [], parsed: true });
+    await responseRepo.confirm(round.id, 'user-3');
+    consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(true);
+    expect(consensus.respondedMembers).toBe(3);
+    expect(consensus.totalOptedInMembers).toBe(4);
 
-  test('calculates regardless of how many members have responded', async () => {
-    // 10 opted in. 75% = 8 required. Let's say exactly 8 responded and overlap.
-    reposMock.members.countOptedInByGroup.mockReturnValue(Promise.resolve(10));
-    const responses = Array(8).fill(null).map((_, i) => ({
-      userId: `u${i}`, 
-      parsedAvailability: { days: ['Tuesday'], times: ['2:00pm'] } 
-    }));
-    
-    reposMock.responses.findConfirmedByRound.mockReturnValue(Promise.resolve(responses));
-
-    const result = await service.calculateConsensus('round-1');
-
-    expect(result.achieved).toBe(true);
-    expect(result.percentage).toBe(80);
-    expect(result.timeSlot?.userIds.length).toBe(8);
   });
 });

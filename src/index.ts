@@ -33,7 +33,7 @@ const repositories = {
   consensus: new ConsensusRepository()
 };
 
-const handlers = new BotHandlers(repositories);
+const handlers = new BotHandlers(repositories, undefined, bot);
 
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
 const retryService = new NLURetryService(repositories, bot.telegram);
