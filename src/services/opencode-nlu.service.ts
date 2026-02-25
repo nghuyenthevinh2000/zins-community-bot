@@ -19,10 +19,17 @@ export class OpenCodeNLUService {
 
   constructor() {
     const externalUrl = process.env.OPENCODE_URL;
+    const adminPassword = process.env.OPENCODE_SERVER_PASSWORD;
+
     if (externalUrl) {
       console.log(`Connecting to external OpenCode server at ${externalUrl}`);
       this.opencodeInstance = Promise.resolve({
-        client: createOpencodeClient({ baseUrl: externalUrl }),
+        client: createOpencodeClient({
+          baseUrl: externalUrl,
+          headers: adminPassword ? {
+            'Authorization': `Bearer ${adminPassword}`
+          } : undefined
+        }),
         server: { close: () => { } }
       });
     } else {

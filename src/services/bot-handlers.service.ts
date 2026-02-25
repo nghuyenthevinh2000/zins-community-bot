@@ -594,15 +594,39 @@ You will now receive DMs when a new scheduling round starts.`);
   }
 
   private parseNaturalLanguageAvailability(text: string): any {
-    // Simple mock parsing for demonstration
-    // In production, this would use OpenCode NLU
-    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const weekdayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const foundDays: string[] = [];
-
     const lowerText = text.toLowerCase();
-    days.forEach(day => {
+    const now = new Date();
+
+    // Handle relative date terms: today, tomorrow, next week
+    if (lowerText.includes('today')) {
+      const name = weekdayNames[now.getDay()]!;
+      foundDays.push(name.charAt(0).toUpperCase() + name.slice(1));
+    }
+
+    if (lowerText.includes('tomorrow')) {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      const name = weekdayNames[tomorrow.getDay()]!;
+      foundDays.push(name.charAt(0).toUpperCase() + name.slice(1));
+    }
+
+    if (lowerText.includes('next week')) {
+      // Default to next Monday
+      const nextMonday = new Date(now);
+      const daysUntilMonday = (8 - now.getDay()) % 7 || 7;
+      nextMonday.setDate(now.getDate() + daysUntilMonday);
+      foundDays.push('Monday');
+    }
+
+    // Handle named weekdays
+    weekdayNames.forEach(day => {
       if (lowerText.includes(day)) {
-        foundDays.push(day.charAt(0).toUpperCase() + day.slice(1));
+        const capitalized = day.charAt(0).toUpperCase() + day.slice(1);
+        if (!foundDays.includes(capitalized)) {
+          foundDays.push(capitalized);
+        }
       }
     });
 

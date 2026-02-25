@@ -9,7 +9,7 @@ services:
       - DATABASE_URL=postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin_pwd}@postgres:5432/${POSTGRES_DB:-zinsbot}
       - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN}
       - NODE_ENV=production
-      - OPENCODE_SERVER_PASSWORD=secret
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-secret}
       - OPENCODE_URL=http://opencode:4096
     depends_on:
       - postgres
@@ -23,7 +23,7 @@ services:
     command: [ "opencode", "serve", "--hostname=0.0.0.0", "--port=4096" ]
     environment:
       - OPENCODE_API_KEY=${OPENCODE_API_KEY}
-      - OPENCODE_SERVER_PASSWORD=secret
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-secret}
     volumes:
       - opencode_data:/root/.opencode
     restart: unless-stopped

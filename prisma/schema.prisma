@@ -70,6 +70,7 @@ model SchedulingRound {
   availabilityResponses AvailabilityResponse[]
   pendingNLURequests PendingNLURequest[]
   nudgeTrackings    NudgeTracking[]
+  reminders         Reminder[]
   consensusResult   ConsensusResult?
   
   @@index([groupId])
@@ -190,6 +191,8 @@ model Reminder {
   scheduledFor      DateTime @map("scheduled_for")
   sentAt            DateTime? @map("sent_at")
   createdAt         DateTime @default(now()) @map("created_at")
+  
+  round             SchedulingRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
   
   @@index([roundId])
   @@index([userId])

@@ -56,7 +56,9 @@ export class ConsensusService {
     }
 
     // Calculate time slots with attendee overlap
+    console.log(`[Consensus] ${respondedMembers} confirmed responses. Confirmed responses:`, JSON.stringify(confirmedResponses.map(r => ({ userId: r.userId, parsedAvailability: r.parsedAvailability })), null, 2));
     const timeSlots = this.calculateTimeSlots(confirmedResponses, totalOptedInMembers);
+    console.log(`[Consensus] Calculated ${timeSlots.length} time slots:`, JSON.stringify(timeSlots.map(s => ({ day: s.day, agreementPercentage: s.agreementPercentage, attendees: s.attendeeUserIds }))));
 
     // Find best time slot that meets threshold
     const threshold = await this.getConsensusThreshold(round.groupId);

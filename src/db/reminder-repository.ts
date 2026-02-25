@@ -1,5 +1,12 @@
-import { PrismaClient, type Reminder } from '@prisma/client';
+import { type PrismaClient, type Reminder, type SchedulingRound, type Group, type ConsensusResult } from '@prisma/client';
 import { getPrismaClient } from './client';
+
+export type ReminderWithFoundRound = Reminder & {
+  round: SchedulingRound & {
+    group: Group;
+    consensusResult: ConsensusResult | null;
+  };
+};
 
 export class ReminderRepository {
   private prisma: PrismaClient;
@@ -26,7 +33,7 @@ export class ReminderRepository {
     });
   }
 
-  async findDueReminders(before: Date = new Date()): Promise<Reminder[]> {
+  async findDueReminders(before: Date = new Date()): Promise<ReminderWithFoundRound[]> {
     return this.prisma.reminder.findMany({
       where: {
         scheduledFor: { lte: before },
@@ -40,7 +47,7 @@ export class ReminderRepository {
           }
         }
       }
-    });
+    }) as unknown as ReminderWithFoundRound[];
   }
 
   async findByRoundAndUser(roundId: string, userId: string): Promise<Reminder | null> {
