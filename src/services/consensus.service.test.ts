@@ -175,4 +175,75 @@ describe('ConsensusService (Story 6.1 & 6.2)', () => {
     expect(consensus.totalOptedInMembers).toBe(4);
 
   });
+
+  test('Story 6.3: should select slot with highest agreement when multiple meet consensus', async () => {
+    // Create group with 4 opted-in members (75% threshold = 3 members needed)
+    const group = await groupRepo.findOrCreate('optimal-slot-group', 'Optimal Slot Test Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+    await memberRepo.optIn('user-4', group.id);
+
+    // Tuesday: 3 users available (75% - meets threshold)
+    await responseRepo.create(round.id, 'user-1', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.create(round.id, 'user-2', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-2');
+    await responseRepo.create(round.id, 'user-3', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-3');
+
+    // Wednesday: 4 users available (100% - higher agreement)
+    await responseRepo.create(round.id, 'user-1', 'Wednesday 3pm', { days: ['Wednesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.create(round.id, 'user-2', 'Wednesday 3pm', { days: ['Wednesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-2');
+    await responseRepo.create(round.id, 'user-3', 'Wednesday 3pm', { days: ['Wednesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-3');
+    await responseRepo.create(round.id, 'user-4', 'Wednesday 3pm', { days: ['Wednesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-4');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(true);
+    // Should select Wednesday with 100% agreement over Tuesday with 75%
+    expect(consensus.timeSlot!.day).toBe('Wednesday');
+    expect(consensus.agreementPercentage).toBe(100);
+  });
+
+  test('Story 6.3: should break ties by earliest start time', async () => {
+    // Create group with 4 opted-in members (75% threshold = 3 members needed)
+    const group = await groupRepo.findOrCreate('tie-break-group', 'Tie Break Test Group');
+    const round = await roundRepo.create(group.id, 'Team Meeting', 'next week');
+
+    await memberRepo.optIn('user-1', group.id);
+    await memberRepo.optIn('user-2', group.id);
+    await memberRepo.optIn('user-3', group.id);
+    await memberRepo.optIn('user-4', group.id);
+
+    // Tuesday 2pm: 3 users available (75%)
+    await responseRepo.create(round.id, 'user-1', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-1');
+    await responseRepo.create(round.id, 'user-2', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-2');
+
+    // Tuesday 3pm: 3 users available (75%) - same agreement, later time
+    await responseRepo.create(round.id, 'user-2', 'Tuesday 3pm', { days: ['Tuesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-2');
+    await responseRepo.create(round.id, 'user-3', 'Tuesday 3pm', { days: ['Tuesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-3');
+    await responseRepo.create(round.id, 'user-4', 'Tuesday 3pm', { days: ['Tuesday'], times: ['3pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-4');
+
+    // Add user-1 to Tuesday 2pm to make it 3 users
+    await responseRepo.create(round.id, 'user-3', 'Tuesday 2pm', { days: ['Tuesday'], times: ['2pm'], parsed: true });
+    await responseRepo.confirm(round.id, 'user-3');
+
+    const consensus = await consensusService.calculateConsensus(round.id);
+    expect(consensus.hasConsensus).toBe(true);
+    // Both slots have 75% agreement, should select earliest (2pm)
+    expect(consensus.timeSlot!.day).toBe('Tuesday');
+    // The time should be the earlier one
+    expect(consensus.agreementPercentage).toBe(75);
+  });
 });
