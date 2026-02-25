@@ -48,29 +48,37 @@ export class ReminderService {
    */
   async scheduleReminders(roundId: string, hoursBefore: number = this.defaultReminderHours): Promise<void> {
     try {
-      // Get the confirmed time slot
+      // Get the confirmed round details
       const round = await this.repos.rounds.findById(roundId);
       if (!round || round.status !== 'confirmed') {
         console.log(`[ReminderService] Cannot schedule reminders - round ${roundId} not confirmed`);
         return;
       }
 
-      // Get consensus result with confirmed time slot
-      const consensusResult = await this.repos.rounds.findById(roundId);
-      if (!consensusResult) {
-        console.log(`[ReminderService] Cannot schedule reminders - no consensus result for round ${roundId}`);
+      // Get confirmed time slot from round or consensusResult
+      const timeSlot = (round.confirmedTimeSlot as any) || (await this.getConsensusTimeSlot(roundId));
+      if (!timeSlot || !timeSlot.startTime) {
+        console.log(`[ReminderService] Cannot schedule reminders - no confirmed time slot for round ${roundId}`);
         return;
       }
 
-      // Get all confirmed attendees (those who responded)
-      const confirmedResponses = await this.repos.responses.findConfirmedByRound(roundId);
-      const attendeeUserIds = confirmedResponses.map(r => r.userId);
+      const meetingStartTime = new Date(timeSlot.startTime);
 
-      // Calculate reminder time (e.g., 1 hour before meeting)
-      // Note: This is a simplified version. In production, you'd parse the actual meeting time
-      const now = new Date();
-      const reminderTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now for testing
-      // In production: reminderTime = new Date(meetingTime.getTime() - hoursBefore * 60 * 60 * 1000);
+      // Get all confirmed attendees (those who were part of the winning slot)
+      const attendeeUserIds = timeSlot.attendeeUserIds || [];
+      if (attendeeUserIds.length === 0) {
+        console.log(`[ReminderService] No attendees to schedule reminders for in round ${roundId}`);
+        return;
+      }
+
+      // Calculate reminder time
+      const reminderTime = new Date(meetingStartTime.getTime() - hoursBefore * 60 * 60 * 1000);
+
+      // Don't schedule if reminder time is in the past
+      if (reminderTime < new Date()) {
+        console.log(`[ReminderService] Reminder time ${reminderTime.toISOString()} is in the past, skipping scheduling`);
+        return;
+      }
 
       // Schedule reminder for each attendee
       for (const userId of attendeeUserIds) {
@@ -82,6 +90,15 @@ export class ReminderService {
     } catch (error) {
       console.error('[ReminderService] Failed to schedule reminders:', error);
     }
+  }
+
+  private async getConsensusTimeSlot(roundId: string): Promise<any | null> {
+    const roundWithConsensus = await this.repos.rounds.findById(roundId);
+    // Assuming consensusResult is included in findById or we fetch it separately
+    // The current round repo findById includes group but not consensusResult in the return type
+    // but Prisma might have it if we added it to schema
+    const anyRound = roundWithConsensus as any;
+    return anyRound?.consensusResult?.confirmedTimeSlot || null;
   }
 
   /**
@@ -116,21 +133,25 @@ export class ReminderService {
     try {
       const { round, userId } = reminder;
       
-      if (!round || !round.consensusResult) {
-        console.log(`[ReminderService] Cannot send reminder - missing round or consensus data`);
+      if (!round) {
+        console.log(`[ReminderService] Cannot send reminder - missing round data`);
         return;
       }
 
-      const timeSlot = round.consensusResult.confirmedTimeSlot as any;
+      const timeSlot = (round.confirmedTimeSlot as any) || round.consensusResult?.confirmedTimeSlot;
       if (!timeSlot) {
         console.log(`[ReminderService] Cannot send reminder - no confirmed time slot`);
         return;
       }
 
+      const meetingDate = new Date(timeSlot.startTime);
+      const dateStr = meetingDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      const timeStr = meetingDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
       const message = `⏰ **Meeting Reminder**\n\n` +
         `**Topic:** ${round.topic}\n` +
-        `**Group:** ${round.group.name}\n` +
-        `**When:** ${timeSlot.day} at ${timeSlot.startTime}\n\n` +
+        `**Group:** ${round.group?.name || 'Unknown Group'}\n` +
+        `**When:** ${dateStr} at ${timeStr}\n\n` +
         `See you there! 👋`;
 
       await this.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
