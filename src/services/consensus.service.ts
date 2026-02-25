@@ -117,17 +117,39 @@ export class ConsensusService {
 
     for (const response of responses) {
       const parsed = response.parsedAvailability as any;
-      if (!parsed || !parsed.days || parsed.days.length === 0) continue;
+      if (!parsed) continue;
 
-      // For each day in the response, add user to that day's set
-      for (const day of parsed.days) {
-        const dayKey = day.toLowerCase();
+      if (parsed.slots && Array.isArray(parsed.slots) && parsed.slots.length > 0) {
+        for (const slot of parsed.slots) {
+          if (!slot.startTime) continue;
 
-        if (!dayMap.has(dayKey)) {
-          dayMap.set(dayKey, { day, userIds: new Set() });
+          const start = new Date(slot.startTime);
+          if (isNaN(start.getTime())) continue;
+
+          const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const dayName = days[start.getDay()];
+          if (!dayName) continue;
+
+          const dayKey = dayName.toLowerCase();
+
+          if (!dayMap.has(dayKey)) {
+            dayMap.set(dayKey, { day: dayName, userIds: new Set() });
+          }
+          dayMap.get(dayKey)!.userIds.add(response.userId);
         }
+      }
 
-        dayMap.get(dayKey)!.userIds.add(response.userId);
+      if (parsed.days && Array.isArray(parsed.days) && parsed.days.length > 0) {
+        // For each day in the response, add user to that day's set
+        for (const day of parsed.days) {
+          const dayKey = day.toLowerCase();
+
+          if (!dayMap.has(dayKey)) {
+            dayMap.set(dayKey, { day, userIds: new Set() });
+          }
+
+          dayMap.get(dayKey)!.userIds.add(response.userId);
+        }
       }
     }
 
@@ -167,7 +189,7 @@ export class ConsensusService {
       return a.startTime.getTime() - b.startTime.getTime();
     });
 
-    return qualifyingSlots[0];
+    return qualifyingSlots[0] || null;
   }
 
   /**
@@ -250,7 +272,7 @@ export class ConsensusService {
     // Try to parse numeric time
     const match = lower.match(/(\d{1,2})(?::\d{2})?\s*(am|pm)?/);
     if (match) {
-      let hour = parseInt(match[1], 10);
+      let hour = parseInt(match[1] || '0', 10);
       const period = match[2];
 
       if (period === 'pm' && hour !== 12) hour += 12;

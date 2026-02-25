@@ -1,6 +1,6 @@
 import { Context } from 'telegraf';
 import { OpenCodeNLUService } from './opencode-nlu.service';
-import { ConsensusService, type ConsensusRepositories } from './consensus.service';
+import { ConsensusService } from './consensus.service';
 import { RetryLoopService } from './retry-loop.service';
 import { ReminderService } from './reminder.service';
 import {
@@ -273,8 +273,8 @@ You will now receive DMs when a new scheduling round starts.`);
     // Try to parse both topic and timeframe: /schedule "topic" on timeframe
     const fullMatch = text.match(/^\/schedule\s+(.+?)\s+on\s+(.+)$/i);
     if (fullMatch) {
-      let topic = fullMatch[1].trim();
-      let timeframe = fullMatch[2].trim();
+      let topic = fullMatch[1]!.trim();
+      let timeframe = fullMatch[2]!.trim();
 
       // Remove surrounding quotes from topic if they exist
       if ((topic.startsWith('"') && topic.endsWith('"')) || (topic.startsWith("'") && topic.endsWith("'"))) {
@@ -287,7 +287,7 @@ You will now receive DMs when a new scheduling round starts.`);
     // Fallback to just topic: /schedule "topic"
     const topicMatch = text.match(/^\/schedule\s+(.+)$/i);
     if (topicMatch) {
-      let topic = topicMatch[1].trim();
+      let topic = topicMatch[1]!.trim();
 
       // Remove surrounding quotes if they exist
       if ((topic.startsWith('"') && topic.endsWith('"')) || (topic.startsWith("'") && topic.endsWith("'"))) {
@@ -666,7 +666,7 @@ You will now receive DMs when a new scheduling round starts.`);
 
       if (!consensus.hasConsensus || !consensus.timeSlot) {
         console.log(`[Consensus] No consensus yet for round ${roundId} (${consensus.respondedMembers}/${consensus.totalOptedInMembers} responded)`);
-        
+
         // Story 6.4: Check if all members have responded but no consensus reached
         if (consensus.respondedMembers >= consensus.totalOptedInMembers && consensus.totalOptedInMembers > 0) {
           console.log(`[Consensus] All members responded but no consensus - triggering retry loop`);
@@ -725,7 +725,7 @@ You will now receive DMs when a new scheduling round starts.`);
           parse_mode: 'Markdown'
         });
         console.log(`[Consensus] Meeting announced for round ${roundId} in group ${group.telegramId}`);
-        
+
         // Story 6.5: Schedule pre-meeting reminders for confirmed attendees
         await this.reminderService.scheduleReminders(roundId, 1); // 1 hour before
       }
