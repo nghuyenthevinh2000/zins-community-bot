@@ -59,6 +59,10 @@ model SchedulingRound {
   confirmedTimeSlot Json?    @map("confirmed_time_slot") // { startTime, endTime, attendeeCount, attendeeUserIds }
   consensusThreshold Int    @default(75) @map("consensus_threshold") // Default 75%
   
+  // Story 6.4: Retry loop fields
+  retryCount        Int      @default(0) @map("retry_count")
+  maxRetries        Int      @default(2) @map("max_retries")
+  
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   

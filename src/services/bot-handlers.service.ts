@@ -1,6 +1,7 @@
 import { Context } from 'telegraf';
 import { OpenCodeNLUService } from './opencode-nlu.service';
 import { ConsensusService, type ConsensusRepositories } from './consensus.service';
+import { RetryLoopService } from './retry-loop.service';
 import {
   GroupRepository,
   MemberRepository,
@@ -24,11 +25,19 @@ export interface Repositories {
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
   private consensusService: ConsensusService;
+  private retryLoopService: RetryLoopService;
   private bot: any; // Telegram bot instance for sending messages
 
   constructor(private repos: Repositories, nluService?: OpenCodeNLUService, bot?: any) {
     this.nluService = nluService || new OpenCodeNLUService();
     this.consensusService = new ConsensusService(repos);
+    this.retryLoopService = new RetryLoopService({
+      rounds: repos.rounds,
+      members: repos.members,
+      responses: repos.responses,
+      nudges: repos.nudges,
+      consensus: repos.consensus
+    });
     this.bot = bot;
   }
 
@@ -646,6 +655,15 @@ You will now receive DMs when a new scheduling round starts.`);
 
       if (!consensus.hasConsensus || !consensus.timeSlot) {
         console.log(`[Consensus] No consensus yet for round ${roundId} (${consensus.respondedMembers}/${consensus.totalOptedInMembers} responded)`);
+        
+        // Story 6.4: Check if all members have responded but no consensus reached
+        if (consensus.respondedMembers >= consensus.totalOptedInMembers && consensus.totalOptedInMembers > 0) {
+          console.log(`[Consensus] All members responded but no consensus - triggering retry loop`);
+          const retryResult = await this.retryLoopService.checkAndHandleNoConsensus(roundId, this.bot);
+          if (retryResult.handled) {
+            console.log(`[Consensus] Retry loop result: ${retryResult.action} - ${retryResult.message}`);
+          }
+        }
         return;
       }
 
