@@ -2,6 +2,7 @@ import { Context } from 'telegraf';
 import { OpenCodeNLUService } from './opencode-nlu.service';
 import { ConsensusService, type ConsensusRepositories } from './consensus.service';
 import { RetryLoopService } from './retry-loop.service';
+import { ReminderService } from './reminder.service';
 import {
   GroupRepository,
   MemberRepository,
@@ -9,7 +10,8 @@ import {
   ResponseRepository,
   NLUQueueRepository,
   NudgeRepository,
-  ConsensusRepository
+  ConsensusRepository,
+  ReminderRepository
 } from '../db';
 
 export interface Repositories {
@@ -20,12 +22,14 @@ export interface Repositories {
   nluQueue: NLUQueueRepository;
   nudges: NudgeRepository;
   consensus: ConsensusRepository;
+  reminders: ReminderRepository;
 }
 
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
   private consensusService: ConsensusService;
   private retryLoopService: RetryLoopService;
+  private reminderService: ReminderService;
   private bot: any; // Telegram bot instance for sending messages
 
   constructor(private repos: Repositories, nluService?: OpenCodeNLUService, bot?: any) {
@@ -38,6 +42,13 @@ export class BotHandlers {
       nudges: repos.nudges,
       consensus: repos.consensus
     });
+    this.reminderService = new ReminderService({
+      reminders: repos.reminders,
+      responses: repos.responses,
+      rounds: repos.rounds,
+      groups: repos.groups,
+      members: repos.members
+    }, bot?.telegram);
     this.bot = bot;
   }
 
@@ -714,6 +725,9 @@ You will now receive DMs when a new scheduling round starts.`);
           parse_mode: 'Markdown'
         });
         console.log(`[Consensus] Meeting announced for round ${roundId} in group ${group.telegramId}`);
+        
+        // Story 6.5: Schedule pre-meeting reminders for confirmed attendees
+        await this.reminderService.scheduleReminders(roundId, 1); // 1 hour before
       }
 
     } catch (error) {

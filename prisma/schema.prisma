@@ -180,3 +180,19 @@ model ConsensusResult {
   @@index([status])
   @@map("consensus_results")
 }
+
+// Story 6.5: Pre-meeting reminder tracking
+model Reminder {
+  id                String   @id @default(uuid())
+  roundId           String   @map("round_id")
+  userId            String   @map("user_id")
+  type              String   @default("pre_meeting") // pre_meeting, etc.
+  scheduledFor      DateTime @map("scheduled_for")
+  sentAt            DateTime? @map("sent_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  
+  @@index([roundId])
+  @@index([userId])
+  @@index([scheduledFor])
+  @@map("reminders")
+}

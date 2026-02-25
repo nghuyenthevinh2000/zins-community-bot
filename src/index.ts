@@ -8,11 +8,13 @@ import {
   NLUQueueRepository,
   NudgeRepository,
   ConsensusRepository,
+  ReminderRepository,
   getPrismaClient
 } from './db';
 import { BotHandlers } from './services/bot-handlers.service';
 import { NLURetryService } from './services/nlu-retry.service';
 import { NudgeSchedulerService } from './services/nudge-scheduler.service';
+import { ReminderService } from './services/reminder.service';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -30,7 +32,8 @@ const repositories = {
   responses: new ResponseRepository(),
   nluQueue: new NLUQueueRepository(),
   nudges: new NudgeRepository(),
-  consensus: new ConsensusRepository()
+  consensus: new ConsensusRepository(),
+  reminders: new ReminderRepository()
 };
 
 const handlers = new BotHandlers(repositories, undefined, bot);
@@ -40,6 +43,9 @@ const retryService = new NLURetryService(repositories, bot.telegram);
 
 // Initialize Nudge scheduler service (Story 5.2)
 const nudgeScheduler = new NudgeSchedulerService(repositories, bot);
+
+// Initialize Reminder service (Story 6.5)
+const reminderService = new ReminderService(repositories, bot.telegram);
 
 // Bot command handlers
 bot.use(async (ctx, next) => {
@@ -142,16 +148,21 @@ retryService.start();
 // Start Nudge scheduler service for sending reminders (Story 5.2)
 nudgeScheduler.start();
 
+// Start Reminder service for pre-meeting reminders (Story 6.5)
+reminderService.start();
+
 // Enable graceful stop
 process.once('SIGINT', async () => {
   bot.stop('SIGINT');
   retryService.stop();
   nudgeScheduler.stop();
+  reminderService.stop();
   await prisma.$disconnect();
 });
 process.once('SIGTERM', async () => {
   bot.stop('SIGTERM');
   retryService.stop();
   nudgeScheduler.stop();
+  reminderService.stop();
   await prisma.$disconnect();
 });
