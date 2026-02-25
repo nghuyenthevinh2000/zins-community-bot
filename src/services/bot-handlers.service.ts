@@ -1,5 +1,6 @@
 import { Context } from 'telegraf';
 import { OpenCodeNLUService } from './opencode-nlu.service';
+import { ConsensusService } from './consensus.service';
 import {
   GroupRepository,
   MemberRepository,
@@ -20,9 +21,13 @@ export interface Repositories {
 
 export class BotHandlers {
   private nluService: OpenCodeNLUService;
+  private consensusService: ConsensusService;
+  private bot: any; // Telegram bot instance for sending messages
 
-  constructor(private repos: Repositories, nluService?: OpenCodeNLUService) {
+  constructor(private repos: Repositories, nluService?: OpenCodeNLUService, bot?: any) {
     this.nluService = nluService || new OpenCodeNLUService();
+    this.consensusService = new ConsensusService();
+    this.bot = bot;
   }
 
   async handleStart(ctx: Context): Promise<void> {
@@ -448,6 +453,9 @@ You will now receive DMs when a new scheduling round starts.`);
           `Your availability has been recorded. Thank you!`,
           { parse_mode: 'Markdown' }
         );
+        
+        // Story 6.1 & 6.2: Check for consensus after each new response
+        await this.checkAndAnnounceConsensus(pendingResponse.roundId);
         return;
       } else {
         // Story 4.3: User is correcting their availability - re-parse and confirm again
@@ -626,5 +634,68 @@ You will now receive DMs when a new scheduling round starts.`);
     interpretation += `\nIs this correct? Reply **"yes"** to confirm, or send corrected availability.`;
 
     await ctx.reply(interpretation, { parse_mode: 'Markdown' });
+  }
+
+  // Story 6.1 & 6.2: Check for consensus and announce meeting
+  private async checkAndAnnounceConsensus(roundId: string): Promise<void> {
+    try {
+      // Calculate consensus
+      const consensus = await this.consensusService.calculateConsensus(roundId);
+      
+      if (!consensus.hasConsensus || !consensus.timeSlot) {
+        console.log(`[Consensus] No consensus yet for round ${roundId} (${consensus.respondedMembers}/${consensus.totalOptedInMembers} responded)`);
+        return;
+      }
+
+      // Get round details for announcement
+      const round = await this.repos.rounds.findById(roundId);
+      if (!round || !this.bot) {
+        console.log(`[Consensus] Cannot announce - round not found or bot not available`);
+        return;
+      }
+
+      // Confirm the meeting
+      const confirmed = await this.consensusService.confirmMeeting(roundId, consensus.timeSlot);
+      if (!confirmed) {
+        console.log(`[Consensus] Failed to confirm meeting for round ${roundId}`);
+        return;
+      }
+
+      // Build announcement message
+      const startTime = consensus.timeSlot.startTime;
+      const attendeeCount = consensus.timeSlot.attendeeUserIds.length;
+      const totalMembers = consensus.totalOptedInMembers;
+      const agreementPct = Math.round(consensus.timeSlot.agreementPercentage);
+
+      // Format the date and time nicely
+      const dateStr = startTime.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+      const timeStr = startTime.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+      });
+
+      const announcement = 
+        `🎉 **Meeting Confirmed!**\n\n` +
+        `**Topic:** ${round.topic}\n` +
+        `**Date:** ${dateStr}\n` +
+        `**Time:** ${timeStr}\n\n` +
+        `**Attendees:** ${attendeeCount} of ${totalMembers} members (${agreementPct}% agreement)\n\n` +
+        `The scheduling round has been closed. See you there!`;
+
+      // Send announcement to the group
+      await this.bot.telegram.sendMessage(round.group.telegramId, announcement, { 
+        parse_mode: 'Markdown' 
+      });
+
+      console.log(`[Consensus] Meeting announced for round ${roundId} in group ${round.group.telegramId}`);
+
+    } catch (error) {
+      console.error('[Consensus] Error checking/announcing consensus:', error);
+    }
   }
 }

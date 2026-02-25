@@ -50,8 +50,14 @@ model SchedulingRound {
   topic       String
   timeframe   String
   status      String   @default("active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Story 6.2: Meeting confirmation fields
+  confirmedAt       DateTime? @map("confirmed_at")
+  confirmedTimeSlot Json?    @map("confirmed_time_slot") // { startTime, endTime, attendeeCount, attendeeUserIds }
+  consensusThreshold Int    @default(75) @map("consensus_threshold") // Default 75%
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
   
   group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   availabilityResponses AvailabilityResponse[]

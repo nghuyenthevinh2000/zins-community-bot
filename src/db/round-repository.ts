@@ -49,6 +49,17 @@ export class RoundRepository {
     });
   }
 
+  async confirmWithTimeSlot(roundId: string, timeSlot: any): Promise<SchedulingRound> {
+    return this.prisma.schedulingRound.update({
+      where: { id: roundId },
+      data: { 
+        status: 'confirmed',
+        confirmedAt: new Date(),
+        confirmedTimeSlot: timeSlot
+      }
+    });
+  }
+
   async findAllActive(): Promise<SchedulingRound[]> {
     return this.prisma.schedulingRound.findMany({
       where: { status: 'active' },
