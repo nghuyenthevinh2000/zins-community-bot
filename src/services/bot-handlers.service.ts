@@ -117,17 +117,46 @@ You will now receive DMs when a new scheduling round starts.`);
     const { hasActiveRound, round } = await this.repos.rounds.getActiveStatus(group.id);
     const optedInCount = await this.repos.members.countOptedInByGroup(group.id);
 
-    if (!hasActiveRound) {
+    if (!hasActiveRound || !round) {
       await ctx.reply('No active scheduling round in this group.');
       return;
     }
 
-    await ctx.reply(
-      `📅 Active Scheduling Round\n\n` +
-      `Topic: ${round!.topic}\n` +
-      `Started: ${round!.createdAt.toLocaleDateString()}\n` +
-      `Opted-in members: ${optedInCount}`
-    );
+    // Get detailed status
+    const confirmedResponses = await this.repos.responses.findConfirmedByRound(round.id);
+    const respondedCount = confirmedResponses.length;
+    const pendingCount = optedInCount - respondedCount;
+
+    // Get consensus status if available
+    const consensusStatus = await this.consensusService.getConsensusStatus(round.id);
+    const threshold = await this.repos.groups.getConsensusThreshold(group.id);
+
+    let message = `📊 **Scheduling Round Status**\n\n`;
+    message += `**Topic:** ${round.topic}\n`;
+    message += `**Started:** ${round.createdAt.toLocaleDateString()}\n\n`;
+    
+    message += `👥 **Participation**\n`;
+    message += `✅ Responded: ${respondedCount}/${optedInCount}\n`;
+    message += `⏳ Pending: ${pendingCount}\n\n`;
+
+    // Show consensus state
+    message += `📊 **Consensus Status**\n`;
+    message += `Threshold: ${threshold}%\n`;
+    
+    if (consensusStatus?.achieved && consensusStatus.confirmedTimeSlot) {
+      message += `✅ **CONSENSUS ACHIEVED!**\n`;
+      message += `📅 ${consensusStatus.confirmedTimeSlot.day}\n`;
+      message += `🕐 ${consensusStatus.confirmedTimeSlot.startTime} - ${consensusStatus.confirmedTimeSlot.endTime}\n`;
+      message += `👥 ${Math.round(consensusStatus.percentage || 0)}% agreement\n`;
+    } else {
+      message += `🔄 Still calculating...\n`;
+      if (consensusStatus?.percentage && consensusStatus.percentage > 0) {
+        message += `Current best: ${Math.round(consensusStatus.percentage)}%\n`;
+      }
+      message += `Waiting for more responses to reach ${threshold}%\n`;
+    }
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
   }
 
   async handleOptIn(ctx: Context): Promise<void> {
