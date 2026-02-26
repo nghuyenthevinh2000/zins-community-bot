@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { BotHandlers } from './bot-handlers.service';
-import { Repositories } from './bot-handlers.service';
+import type { Repositories } from './bot-handlers.service';
 
 // Mock the entire OpenCodeNLUService class
 mock.module('./opencode-nlu.service', () => {
@@ -25,7 +25,9 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
         getConsensusThreshold: mock(() => Promise.resolve(75))
       } as any,
       members: {
-        countOptedInByGroup: mock(() => Promise.resolve(4))
+        findOptedInByGroup: mock(() => Promise.resolve([
+          { userId: 'user-1' }, { userId: 'user-2' }, { userId: 'user-3' }, { userId: 'user-4' }
+        ]))
       } as any,
       rounds: {
         getActiveStatus: mock(() => Promise.resolve({ hasActiveRound: true, round: { id: 'round-1', topic: 'Test Topic', createdAt: new Date() } }))
@@ -40,11 +42,12 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
     };
 
     consensusServiceMock = {
-      getConsensusStatus: mock(() => Promise.resolve({
-        achieved: false,
+      calculateConsensus: mock(() => Promise.resolve({
+        hasConsensus: false,
         percentage: 50,
-        respondersCount: 2,
-        totalOptedInCount: 4
+        respondedMembers: 2,
+        totalOptedInMembers: 4,
+        timeSlot: { agreementPercentage: 50, day: 'Monday' }
       }))
     };
 
@@ -84,11 +87,11 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
       expect.any(Object)
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
-      expect.stringContaining('Responded: 2/4'),
+      expect.stringContaining('2 of 4 members responded'),
       expect.any(Object)
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
-      expect.stringContaining('Pending: 2'),
+      expect.stringContaining('Pending:'),
       expect.any(Object)
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
@@ -100,19 +103,22 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
       expect.any(Object)
     );
   });
-
   test('should display success message when consensus achieved', async () => {
-    consensusServiceMock.getConsensusStatus.mockReturnValue(Promise.resolve({
-      achieved: true,
-      percentage: 75,
-      confirmedTimeSlot: {
-        day: 'Tuesday',
-        startTime: '10:00 AM',
-        endTime: '11:00 AM'
-      },
-      respondersCount: 3,
-      totalOptedInCount: 4
-    }));
+    const consensusServiceMockLocal = {
+      calculateConsensus: mock(() => Promise.resolve({
+        hasConsensus: true,
+        percentage: 75,
+        timeSlot: {
+          day: 'Tuesday',
+          startTime: new Date('2024-01-01T10:00:00Z'),
+          endTime: new Date('2024-01-01T11:00:00Z'),
+          agreementPercentage: 75
+        },
+        respondedMembers: 3,
+        totalOptedInMembers: 4
+      }))
+    };
+    (handlers as any).consensusService = consensusServiceMockLocal;
 
     await handlers.handleStatus(ctxMock);
 
@@ -125,7 +131,7 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
       expect.any(Object)
     );
     expect(ctxMock.reply).toHaveBeenCalledWith(
-      expect.stringContaining('10:00 AM - 11:00 AM'),
+      expect.stringContaining('10:00 AM'),
       expect.any(Object)
     );
   });

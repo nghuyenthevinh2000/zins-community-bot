@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { BotHandlers } from './bot-handlers.service';
-import { Repositories } from './bot-handlers.service';
+import type { Repositories } from './bot-handlers.service';
 
 // Mock the entire OpenCodeNLUService class
 mock.module('./opencode-nlu.service', () => {
@@ -206,6 +206,7 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
     reposMock = {
       groups: {
         findByTelegramId: mock(() => Promise.resolve({ id: 'group-1', name: 'Test Group' })),
+        getConsensusThreshold: mock(() => Promise.resolve(75))
       } as any,
       members: {
         findOptedInByGroup: mock(() => Promise.resolve([])),
@@ -238,7 +239,7 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
   test('should display detailed status when an active round exists', async () => {
     const group = { id: 'group-1', telegramId: '123', name: 'Test Group', consensusThreshold: 75 };
     const round = { id: 'round-1', topic: 'Status Check', createdAt: new Date() };
-    
+
     reposMock.groups.findByTelegramId = mock(() => Promise.resolve(group));
     reposMock.rounds.getActiveStatus = mock(() => Promise.resolve({ hasActiveRound: true, round }));
     reposMock.members.findOptedInByGroup = mock(() => Promise.resolve([
@@ -249,7 +250,7 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
     reposMock.responses.findConfirmedByRound = mock(() => Promise.resolve([
       { userId: 'user-1' }
     ]));
-    
+
     // Mock consensus service result (no consensus yet)
     (handlers as any).consensusService.calculateConsensus = mock(() => Promise.resolve({
       hasConsensus: false,
@@ -260,14 +261,14 @@ describe('BotHandlers.handleStatus (Story 7.1)', () => {
     await handlers.handleStatus(ctxMock);
 
     expect(ctxMock.reply).toHaveBeenCalledWith(
-      expect.stringContaining('Scheduling Status'),
+      expect.stringContaining('Scheduling Round Status'),
       expect.objectContaining({ parse_mode: 'Markdown' })
     );
-    
+
     const replyCall = ctxMock.reply.mock.calls[0];
     const message = replyCall[0];
     expect(message).toContain('1 of 3 members responded');
-    expect(message).toContain('No consensus yet');
+    expect(message).toContain('Still calculating...');
   });
 
   test('should inform if no active round exists', async () => {
