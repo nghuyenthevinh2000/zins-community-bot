@@ -1,6 +1,6 @@
 # Story 8.3: Split BotHandlers — Extract Scheduling Service & Move Other Services
 
-Status: ready-for-dev
+Status: done
 
 ## Prerequisite
 
@@ -203,10 +203,49 @@ This method (currently in `BotHandlers`) calls `this.consensusService` and `this
 
 ### Agent Model Used
 
-_to be filled by dev agent_
+github-copilot/claude-sonnet-4.6
 
 ### Debug Log References
 
+- `src/services/bot-handlers.service.ts` was deleted in a prior session, which broke 3 old test files that still imported from it. Solution: created a backward-compatibility shim at the old path re-exporting `SchedulingService as BotHandlers` and `SchedulingRepositories as Repositories`.
+- `handleSettings` and `broadcastSettingChange` were missing from `SchedulingService` (not extracted from old `BotHandlers`). Added both methods to `SchedulingService` from git history.
+- `error: API Unavailable` in test output is a `console.error` log from the service's error handler, not a test failure. All 191 tests pass.
+
 ### Completion Notes List
 
+- All services moved from `src/services/` to their module folders (`consensus`, `nlu`, `nudge`, `reminder`, `scheduling`).
+- `src/services/bot-handlers.service.ts` deleted and replaced with a backward-compatibility shim (re-exports `BotHandlers`/`Repositories` for old test files until Story 8.4 cleans them up).
+- `handleSettings` and `broadcastSettingChange` extracted to `SchedulingService`.
+- `handleHelp` added to `SchedulingService`.
+- All module `index.ts` files updated with correct exports.
+- `src/index.ts` rewired to use `SchedulingService` from new module path.
+- `bun test` passes with 191 tests, 0 failures across 27 files.
+
 ### File List
+
+**Created:**
+- `src/modules/consensus/retry-loop.service.ts`
+- `src/modules/consensus/consensus.service.test.ts`
+- `src/modules/consensus/retry-loop.service.test.ts`
+- `src/modules/nlu/opencode-nlu.service.ts`
+- `src/modules/nlu/nlu-retry.service.ts`
+- `src/modules/nlu/nlu-retry.service.test.ts`
+- `src/modules/nudge/nudge.service.ts`
+- `src/modules/nudge/nudge-scheduler.service.ts`
+- `src/modules/nudge/nudge-scheduler.service.test.ts`
+- `src/modules/reminder/reminder.service.ts`
+- `src/modules/reminder/reminder.service.test.ts`
+- `src/modules/scheduling/scheduling.service.ts`
+- `src/modules/scheduling/scheduling.service.test.ts`
+- `src/services/bot-handlers.service.ts` (backward-compatibility shim)
+
+**Updated:**
+- `src/modules/scheduling/index.ts`
+- `src/modules/consensus/index.ts`
+- `src/modules/nlu/index.ts`
+- `src/modules/nudge/index.ts`
+- `src/modules/reminder/index.ts`
+- `src/index.ts`
+
+**Deleted:**
+- `src/services/bot-handlers.service.ts` (original — replaced by shim)

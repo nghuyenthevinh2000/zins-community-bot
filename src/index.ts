@@ -12,10 +12,11 @@ import {
   getPrismaClient
 } from './db';
 import { GroupService } from './modules/group';
-import { BotHandlers } from './services/bot-handlers.service';
-import { NLURetryService } from './services/nlu-retry.service';
-import { NudgeSchedulerService } from './services/nudge-scheduler.service';
-import { ReminderService } from './services/reminder.service';
+import { SchedulingService } from './modules/scheduling';
+import { NLURetryService } from './modules/nlu';
+import { NudgeSchedulerService } from './modules/nudge';
+import { ReminderService } from './modules/reminder';
+import { OpenCodeNLUService } from './modules/nlu';
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -43,8 +44,11 @@ const groupService = new GroupService(
   bot.telegram
 );
 
-// Initialize BotHandlers with remaining scheduling/availability logic
-const handlers = new BotHandlers(repositories, undefined, bot);
+// Initialize NLU service
+const nluService = new OpenCodeNLUService();
+
+// Initialize SchedulingService (Story 8.3)
+const schedulingService = new SchedulingService(repositories, nluService, undefined, undefined, bot);
 
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
 const retryService = new NLURetryService(repositories, bot.telegram);
@@ -69,11 +73,11 @@ bot.command('optin', (ctx) => groupService.handleOptIn(ctx));
 bot.command('members', (ctx) => groupService.handleMembers(ctx));
 bot.command('settings', (ctx) => groupService.handleSettings(ctx));
 
-// Scheduling commands - handled by BotHandlers
-bot.command('schedule', (ctx) => handlers.handleSchedule(ctx));
-bot.command('cancel', (ctx) => handlers.handleCancel(ctx));
-bot.command('status', (ctx) => handlers.handleStatus(ctx));
-bot.command('help', (ctx) => handlers.handleHelp(ctx));
+// Scheduling commands - handled by SchedulingService
+bot.command('schedule', (ctx) => schedulingService.handleSchedule(ctx));
+bot.command('cancel', (ctx) => schedulingService.handleCancel(ctx));
+bot.command('status', (ctx) => schedulingService.handleStatus(ctx));
+bot.command('help', (ctx) => schedulingService.handleHelp(ctx));
 
 // Handle availability responses in DMs
 bot.on('message', async (ctx) => {
@@ -81,7 +85,7 @@ bot.on('message', async (ctx) => {
   if (ctx.chat?.type !== 'private') return;
   if (ctx.message && 'text' in ctx.message && ctx.message.text?.startsWith('/')) return;
 
-  await handlers.handleAvailabilityResponse(ctx);
+  await schedulingService.handleAvailabilityResponse(ctx);
 });
 
 // Handle when bot is added to a group
