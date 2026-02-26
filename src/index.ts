@@ -11,6 +11,7 @@ import {
   ReminderRepository,
   getPrismaClient
 } from './db';
+import { GroupService } from './modules/group';
 import { BotHandlers } from './services/bot-handlers.service';
 import { NLURetryService } from './services/nlu-retry.service';
 import { NudgeSchedulerService } from './services/nudge-scheduler.service';
@@ -36,6 +37,13 @@ const repositories = {
   reminders: new ReminderRepository()
 };
 
+// Initialize GroupService (Story 8.2)
+const groupService = new GroupService(
+  { groups: repositories.groups, members: repositories.members },
+  bot.telegram
+);
+
+// Initialize BotHandlers with remaining scheduling/availability logic
 const handlers = new BotHandlers(repositories, undefined, bot);
 
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
@@ -55,13 +63,16 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-bot.start((ctx) => handlers.handleStart(ctx));
+// Group-related commands (Story 8.2) - delegated to GroupService
+bot.start((ctx) => groupService.handleStart(ctx));
+bot.command('optin', (ctx) => groupService.handleOptIn(ctx));
+bot.command('members', (ctx) => groupService.handleMembers(ctx));
+bot.command('settings', (ctx) => groupService.handleSettings(ctx));
+
+// Scheduling commands - handled by BotHandlers
 bot.command('schedule', (ctx) => handlers.handleSchedule(ctx));
 bot.command('cancel', (ctx) => handlers.handleCancel(ctx));
 bot.command('status', (ctx) => handlers.handleStatus(ctx));
-bot.command('optin', (ctx) => handlers.handleOptIn(ctx));
-bot.command('members', (ctx) => handlers.handleMembers(ctx));
-bot.command('settings', (ctx) => handlers.handleSettings(ctx));
 bot.command('help', (ctx) => handlers.handleHelp(ctx));
 
 // Handle availability responses in DMs
