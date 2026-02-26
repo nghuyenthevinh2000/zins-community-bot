@@ -11,6 +11,7 @@ import {
   ReminderRepository,
   getPrismaClient
 } from './db';
+import type { AllRepositories } from './core/repositories';
 import { GroupService } from './modules/group';
 import { SchedulingService } from './modules/scheduling';
 import { NLURetryService } from './modules/nlu';
@@ -27,7 +28,7 @@ const bot = new Telegraf(token || 'dummy_token');
 const prisma = getPrismaClient();
 
 // Initialize repositories
-const repositories = {
+const repositories: AllRepositories = {
   groups: new GroupRepository(),
   members: new MemberRepository(),
   rounds: new RoundRepository(),
@@ -47,17 +48,17 @@ const groupService = new GroupService(
 // Initialize NLU service
 const nluService = new OpenCodeNLUService();
 
-// Initialize SchedulingService (Story 8.3)
-const schedulingService = new SchedulingService(repositories, nluService, undefined, undefined, bot);
-
 // Initialize NLU retry service for handling API failures (Story 4.5 - NFR6)
 const retryService = new NLURetryService(repositories, bot.telegram);
 
 // Initialize Nudge scheduler service (Story 5.2)
 const nudgeScheduler = new NudgeSchedulerService(repositories, bot);
 
-// Initialize Reminder service (Story 6.5)
+// Initialize Reminder service (Story 6.5) — single instance, injected everywhere
 const reminderService = new ReminderService(repositories, bot.telegram);
+
+// Initialize SchedulingService (Story 8.3) — inject reminderService to avoid duplicate
+const schedulingService = new SchedulingService(repositories, nluService, undefined, undefined, bot, reminderService);
 
 // Bot command handlers
 bot.use(async (ctx, next) => {

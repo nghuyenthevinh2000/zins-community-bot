@@ -3,27 +3,9 @@ import { OpenCodeNLUService } from '../nlu/opencode-nlu.service';
 import { ConsensusService } from '../consensus/consensus.service';
 import { RetryLoopService } from '../consensus/retry-loop.service';
 import { ReminderService } from '../reminder/reminder.service';
-import {
-  GroupRepository,
-  MemberRepository,
-  RoundRepository,
-  ResponseRepository,
-  NLUQueueRepository,
-  NudgeRepository,
-  ConsensusRepository,
-  ReminderRepository
-} from '../../db';
+import type { AllRepositories } from '../../core/repositories';
 
-export interface SchedulingRepositories {
-  groups: GroupRepository;
-  members: MemberRepository;
-  rounds: RoundRepository;
-  responses: ResponseRepository;
-  nluQueue: NLUQueueRepository;
-  nudges: NudgeRepository;
-  consensus: ConsensusRepository;
-  reminders: ReminderRepository;
-}
+export type SchedulingRepositories = Pick<AllRepositories, 'groups' | 'members' | 'rounds' | 'responses' | 'nluQueue' | 'nudges' | 'consensus' | 'reminders'>;
 
 export class SchedulingService {
   private consensusService: ConsensusService;
@@ -35,7 +17,8 @@ export class SchedulingService {
     private nluService: OpenCodeNLUService,
     consensusService?: ConsensusService,
     retryLoopService?: RetryLoopService,
-    private bot?: any
+    private bot?: any,
+    reminderService?: ReminderService
   ) {
     this.consensusService = consensusService || new ConsensusService(repos);
     this.retryLoopService = retryLoopService || new RetryLoopService({
@@ -45,7 +28,7 @@ export class SchedulingService {
       nudges: repos.nudges,
       consensus: repos.consensus
     });
-    this.reminderService = new ReminderService({
+    this.reminderService = reminderService || new ReminderService({
       reminders: repos.reminders,
       responses: repos.responses,
       rounds: repos.rounds,

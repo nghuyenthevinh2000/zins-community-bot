@@ -252,14 +252,6 @@ export class ConsensusService {
   }
 
   /**
-   * Get slot key for deduplication
-   */
-  private getSlotKey(day: string, times: string[] | undefined): string {
-    const timeStr = times && times.length > 0 ? times.join('-') : 'allday';
-    return `${day.toLowerCase()}-${timeStr}`;
-  }
-
-  /**
    * Parse day and time to a Date object
    */
   private parseDayToDate(day: string, time: string): Date {

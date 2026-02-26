@@ -1,10 +1,7 @@
-import { ResponseRepository, NLUQueueRepository } from '../../db';
+import type { AllRepositories } from '../../core/repositories';
 import { OpenCodeNLUService } from './opencode-nlu.service';
 
-export interface NLURetryRepositories {
-  responses: ResponseRepository;
-  nluQueue: NLUQueueRepository;
-}
+export type NLURetryRepositories = Pick<AllRepositories, 'responses' | 'nluQueue'>;
 
 export class NLURetryService {
   private nluService: OpenCodeNLUService;

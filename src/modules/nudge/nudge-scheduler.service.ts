@@ -1,13 +1,7 @@
-import { RoundRepository, NudgeRepository, GroupRepository, ResponseRepository, MemberRepository } from '../../db';
+import type { AllRepositories } from '../../core/repositories';
 import { NudgeService } from './nudge.service';
 
-export interface NudgeSchedulerRepositories {
-  rounds: RoundRepository;
-  nudges: NudgeRepository;
-  groups: GroupRepository;
-  responses: ResponseRepository;
-  members: MemberRepository;
-}
+export type NudgeSchedulerRepositories = Pick<AllRepositories, 'rounds' | 'nudges' | 'groups' | 'responses' | 'members'>;
 
 export class NudgeSchedulerService {
   private intervalId: NodeJS.Timeout | null = null;

@@ -1,12 +1,6 @@
-import { ReminderRepository, ResponseRepository, RoundRepository, GroupRepository, MemberRepository } from '../../db';
+import type { AllRepositories } from '../../core/repositories';
 
-export interface ReminderRepositories {
-  reminders: ReminderRepository;
-  responses: ResponseRepository;
-  rounds: RoundRepository;
-  groups: GroupRepository;
-  members: MemberRepository;
-}
+export type ReminderRepositories = Pick<AllRepositories, 'reminders' | 'responses' | 'rounds' | 'groups' | 'members'>;
 
 export class ReminderService {
   private isRunning = false;

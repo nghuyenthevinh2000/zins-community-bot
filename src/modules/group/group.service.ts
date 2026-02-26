@@ -1,11 +1,7 @@
 import { Context } from 'telegraf';
-import { GroupRepository } from './db/group-repository';
-import { MemberRepository } from './db/member-repository';
+import type { AllRepositories } from '../../core/repositories';
 
-export interface GroupRepositories {
-  groups: GroupRepository;
-  members: MemberRepository;
-}
+export type GroupRepositories = Pick<AllRepositories, 'groups' | 'members'>;
 
 export class GroupService {
   constructor(
