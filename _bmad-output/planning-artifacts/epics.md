@@ -501,3 +501,72 @@ So that I can make it easier or harder to reach agreement.
 **When** they set the consensus threshold to 60%
 **Then** the new threshold is saved to the group's settings
 **And** future consensus calculations use the updated threshold
+
+## Epic 8: Codebase Refactoring — Module Architecture
+
+Reorganize `src/services/` and `src/db/` into co-located feature modules and clean up redundant code.
+
+### Story 8.1: Module Scaffold — Create Folder Structure & Move DB Files
+
+As a **developer**,
+I want to reorganize `src/db/` files into co-located feature module folders under `src/modules/`,
+so that each domain's repository lives next to its service code and the project is ready for future module expansion.
+
+**Acceptance Criteria:**
+
+- New `src/modules/` directory tree exists with all 6 module folders.
+- All 9 repository files (and their existing test files) are moved verbatim into their domain `db/` subfolder.
+- `src/db/index.ts` is updated to re-export everything from the new module paths.
+- `src/db/client.ts` is moved to `src/core/db/client.ts`.
+- `bun test` passes with zero failures.
+
+### Story 8.2: Split BotHandlers — Extract Group Service
+
+As a **developer**,
+I want to extract all group-related command handlers from `src/services/bot-handlers.service.ts` into a new `src/modules/group/group.service.ts`,
+so that group registration, member management, and settings logic is self-contained.
+
+**Acceptance Criteria:**
+
+- `GroupService` contains: `handleStart`, `handleOptIn`, `handleMembers`, `handleSettings`, and `broadcastSettingChange`.
+- `GroupService` accepts a `GroupRepositories` interface and a `telegram` instance.
+- Full test coverage ported to `group.service.test.ts`.
+- `src/index.ts` is updated to instantiate and wire `GroupService`.
+
+### Story 8.3: Split BotHandlers — Extract Scheduling Service & Move Other Services
+
+As a **developer**,
+I want to extract all scheduling and availability handlers from `BotHandlers` and move all remaining services into their module folders,
+so that the legacy `src/services/` folder is emptied and every domain is self-contained.
+
+**Acceptance Criteria:**
+
+- `SchedulingService` contains all scheduling and availability handlers.
+- `ConsensusService`, `RetryLoopService`, `NLURetryService`, `NudgeService`, `NudgeSchedulerService`, and `ReminderService` are moved to their modules.
+- `src/services/bot-handlers.service.ts` is deleted.
+- All services are wired correctly in `src/index.ts`.
+
+### Story 8.4: Consolidate Orphaned Tests & Delete Dead Files
+
+As a **developer**,
+I want to remove all files that are now obsolete and consolidate split tests,
+so that the repository is clean and has no dead code.
+
+**Acceptance Criteria:**
+
+- Obsolete test files (`bot-handlers.service.test.ts`, `bot-handlers.status.test.ts`, `group-settings.test.ts`) are deleted.
+- Empty `src/services/` directory is removed.
+- All test coverage is verified in new module test files.
+
+### Story 8.5: Fix DI Bugs & Dead Code Cleanup
+
+As a **developer**,
+I want to fix the identified dependency injection bugs and remove dead methods,
+so that the codebase is robust and optimized.
+
+**Acceptance Criteria:**
+
+- Fix duplicate `ReminderService` instantiation bug.
+- Delete dead `getSlotKey()` method in `ConsensusService`.
+- Centralize `Repositories` type into `src/core/repositories.ts` and use `Pick<AllRepositories, ...>` in services.
+- `bun test` passes with zero failures.

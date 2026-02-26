@@ -1,6 +1,6 @@
 # Story 8.2: Split BotHandlers — Extract Group Service
 
-Status: ready-for-dev
+Status: done
 
 ## Prerequisite
 
