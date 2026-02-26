@@ -140,6 +140,11 @@ The bot calculates incremental consensus and announces confirmed meetings with r
 Members can check scheduling progress and configure group settings.
 **FRs covered:** FR25, FR26, FR27, FR28, FR29
 
+### Epic 8: Codebase Refactoring — Module Architecture
+Reorganize `src/services/` and `src/db/` into co-located feature modules and clean up redundant code.
+**FRs covered:** N/A (technical debt / developer experience)
+**Stories:** 8.1 (scaffold), 8.2 (group service), 8.3 (scheduling service + service moves), 8.4 (dead file cleanup), 8.5 (DI bug fixes)
+
 ---
 
 ## Epic 1: Project Foundation & Bot Setup
