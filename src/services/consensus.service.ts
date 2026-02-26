@@ -119,7 +119,7 @@ export class ConsensusService {
     responses: any[],
     totalOptedInMembers: number
   ): TimeSlot[] {
-    const dayMap = new Map<string, { day: string; userIds: Set<string> }>();
+    const dayMap = new Map<string, { day: string; userIds: Set<string>; preferredTimes: Set<string> }>();
 
     for (const response of responses) {
       const parsed = response.parsedAvailability as any;
@@ -139,9 +139,18 @@ export class ConsensusService {
           const dayKey = dayName.toLowerCase();
 
           if (!dayMap.has(dayKey)) {
-            dayMap.set(dayKey, { day: dayName, userIds: new Set() });
+            dayMap.set(dayKey, { day: dayName, userIds: new Set(), preferredTimes: new Set() });
           }
-          dayMap.get(dayKey)!.userIds.add(response.userId);
+          const slotEntry = dayMap.get(dayKey)!;
+          slotEntry.userIds.add(response.userId);
+          // Capture the specific time from the NLU slot
+          if (slot.startTime) {
+            const startDate = new Date(slot.startTime);
+            const hour = startDate.getHours();
+            const period = hour >= 12 ? 'pm' : 'am';
+            const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+            slotEntry.preferredTimes.add(`${displayHour}${period}`);
+          }
         }
       }
 
@@ -151,18 +160,30 @@ export class ConsensusService {
           const dayKey = day.toLowerCase();
 
           if (!dayMap.has(dayKey)) {
-            dayMap.set(dayKey, { day, userIds: new Set() });
+            dayMap.set(dayKey, { day, userIds: new Set(), preferredTimes: new Set() });
           }
 
-          dayMap.get(dayKey)!.userIds.add(response.userId);
+          const dayEntry = dayMap.get(dayKey)!;
+          dayEntry.userIds.add(response.userId);
+          // Capture any user-specified times from the fallback parser
+          if (parsed.times && Array.isArray(parsed.times)) {
+            for (const t of parsed.times) {
+              if (typeof t === 'string' && t.trim()) {
+                dayEntry.preferredTimes.add(t.trim());
+              }
+            }
+          }
         }
       }
     }
 
     // Convert to TimeSlot array with agreement percentages
     return Array.from(dayMap.values()).map(dayData => {
-      // Calculate time range for this day (9am - 6pm default)
-      const startTime = this.parseDayToDate(dayData.day, '9am');
+      // Use the preferred time from responses if available, otherwise default to 9am
+      const preferredTime = dayData.preferredTimes.size > 0
+        ? Array.from(dayData.preferredTimes)[0]!
+        : '9am';
+      const startTime = this.parseDayToDate(dayData.day, preferredTime);
       const endTime = this.parseDayToDate(dayData.day, '6pm');
 
       return {
