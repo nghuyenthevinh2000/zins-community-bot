@@ -115,19 +115,47 @@ You will now receive DMs when a new scheduling round starts.`);
     }
 
     const { hasActiveRound, round } = await this.repos.rounds.getActiveStatus(group.id);
-    const optedInCount = await this.repos.members.countOptedInByGroup(group.id);
-
-    if (!hasActiveRound) {
+    if (!hasActiveRound || !round) {
       await ctx.reply('No active scheduling round in this group.');
       return;
     }
 
-    await ctx.reply(
-      `📅 Active Scheduling Round\n\n` +
-      `Topic: ${round!.topic}\n` +
-      `Started: ${round!.createdAt.toLocaleDateString()}\n` +
-      `Opted-in members: ${optedInCount}`
-    );
+    const optedInMembers = await this.repos.members.findOptedInByGroup(group.id);
+    const confirmedResponses = await this.repos.responses.findConfirmedByRound(round.id);
+    
+    const optedInCount = optedInMembers.length;
+    const respondedCount = confirmedResponses.length;
+    
+    // Identify pending members
+    const respondedUserIds = new Set(confirmedResponses.map(r => r.userId));
+    const pendingMembers = optedInMembers.filter(m => !respondedUserIds.has(m.userId));
+
+    // Get current consensus state
+    const consensus = await this.consensusService.calculateConsensus(round.id);
+
+    let message = `📅 **Scheduling Status**\n\n`;
+    message += `**Topic:** ${round.topic}\n`;
+    message += `**Started:** ${round.createdAt.toLocaleDateString()}\n\n`;
+    
+    message += `📊 **Progress:** ${respondedCount} of ${optedInCount} members responded\n`;
+    
+    if (pendingMembers.length > 0 && pendingMembers.length <= 10) {
+      message += `⏳ **Pending:** ${pendingMembers.map(m => `User ${m.userId.substring(0, 4)}...`).join(', ')}\n`;
+    } else if (pendingMembers.length > 10) {
+      message += `⏳ **Pending:** ${pendingMembers.length} members\n`;
+    } else {
+      message += `✅ All opted-in members have responded!\n`;
+    }
+
+    message += `\n🤝 **Consensus State:**\n`;
+    if (consensus.hasConsensus && consensus.timeSlot) {
+      const timeStr = consensus.timeSlot.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      message += `✅ Consensus reached: **${consensus.timeSlot.day} ${timeStr}** (${Math.round(consensus.timeSlot.agreementPercentage)}% agreement)`;
+    } else {
+      message += `⏳ No consensus yet. (Needs ${round.consensusThreshold || 75}% agreement)`;
+    }
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
   }
 
   async handleOptIn(ctx: Context): Promise<void> {
@@ -495,14 +523,11 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { consensusThreshold: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**
-
-` +
-          `Consensus threshold changed to ${settingValue}%.
-
-` +
+          `✅ **Setting Updated**\n\n` +
+          `Consensus threshold changed to ${settingValue}%.\n\n` +
           `Now at least ${settingValue}% of members must agree on a time ` +
-          `for a meeting to be confirmed.`
+          `for a meeting to be confirmed.`,
+          { parse_mode: 'Markdown' }
         );
         
         // Broadcast change to group
@@ -525,14 +550,11 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { nudgeIntervalHours: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**
-
-` +
-          `Nudge interval changed to ${settingValue} hours.
-
-` +
+          `✅ **Setting Updated**\n\n` +
+          `Nudge interval changed to ${settingValue} hours.\n\n` +
           `Members will now be reminded every ${settingValue} hours ` +
-          `if they haven't responded.`
+          `if they haven't responded.`,
+          { parse_mode: 'Markdown' }
         );
         
         // Broadcast change to group
@@ -555,13 +577,10 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { maxNudgeCount: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**
-
-` +
-          `Maximum nudges changed to ${settingValue}.
-
-` +
-          `The bot will send up to ${settingValue} reminders to non-responders.`
+          `✅ **Setting Updated**\n\n` +
+          `Maximum nudges changed to ${settingValue}.\n\n` +
+          `The bot will send up to ${settingValue} reminders to non-responders.`,
+          { parse_mode: 'Markdown' }
         );
         
         // Broadcast change to group

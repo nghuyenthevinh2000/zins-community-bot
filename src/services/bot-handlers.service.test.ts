@@ -197,6 +197,89 @@ describe('BotHandlers.handleSchedule (Story 4.1)', () => {
   });
 });
 
+describe('BotHandlers.handleStatus (Story 7.1)', () => {
+  let reposMock: Repositories;
+  let handlers: BotHandlers;
+  let ctxMock: any;
+
+  beforeEach(() => {
+    reposMock = {
+      groups: {
+        findByTelegramId: mock(() => Promise.resolve({ id: 'group-1', name: 'Test Group' })),
+      } as any,
+      members: {
+        findOptedInByGroup: mock(() => Promise.resolve([])),
+      } as any,
+      rounds: {
+        getActiveStatus: mock(() => Promise.resolve({ hasActiveRound: false })),
+      } as any,
+      responses: {
+        findConfirmedByRound: mock(() => Promise.resolve([])),
+      } as any,
+      consensus: {} as any,
+      nluQueue: {} as any,
+      nudges: {} as any,
+      reminders: {} as any,
+    };
+    handlers = new BotHandlers(reposMock);
+    ctxMock = {
+      chat: { id: 123, type: 'group' },
+      from: { id: 456, first_name: 'TestUser', username: 'testuser' },
+      reply: mock(() => Promise.resolve({})),
+    };
+  });
+
+  test('should fail if not in group chat', async () => {
+    ctxMock.chat.type = 'private';
+    await handlers.handleStatus(ctxMock);
+    expect(ctxMock.reply).toHaveBeenCalledWith('This command only works in group chats.');
+  });
+
+  test('should display detailed status when an active round exists', async () => {
+    const group = { id: 'group-1', telegramId: '123', name: 'Test Group', consensusThreshold: 75 };
+    const round = { id: 'round-1', topic: 'Status Check', createdAt: new Date() };
+    
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve(group));
+    reposMock.rounds.getActiveStatus = mock(() => Promise.resolve({ hasActiveRound: true, round }));
+    reposMock.members.findOptedInByGroup = mock(() => Promise.resolve([
+      { userId: 'user-1' },
+      { userId: 'user-2' },
+      { userId: 'user-3' }
+    ]));
+    reposMock.responses.findConfirmedByRound = mock(() => Promise.resolve([
+      { userId: 'user-1' }
+    ]));
+    
+    // Mock consensus service result (no consensus yet)
+    (handlers as any).consensusService.calculateConsensus = mock(() => Promise.resolve({
+      hasConsensus: false,
+      totalOptedInMembers: 3,
+      respondedMembers: 1
+    }));
+
+    await handlers.handleStatus(ctxMock);
+
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Scheduling Status'),
+      expect.objectContaining({ parse_mode: 'Markdown' })
+    );
+    
+    const replyCall = ctxMock.reply.mock.calls[0];
+    const message = replyCall[0];
+    expect(message).toContain('1 of 3 members responded');
+    expect(message).toContain('No consensus yet');
+  });
+
+  test('should inform if no active round exists', async () => {
+    reposMock.groups.findByTelegramId = mock(() => Promise.resolve({ id: 'group-1' }));
+    reposMock.rounds.getActiveStatus = mock(() => Promise.resolve({ hasActiveRound: false }));
+
+    await handlers.handleStatus(ctxMock);
+
+    expect(ctxMock.reply).toHaveBeenCalledWith('No active scheduling round in this group.');
+  });
+});
+
 describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
   let reposMock: Repositories;
   let nluServiceMock: any;
@@ -323,5 +406,126 @@ describe('BotHandlers.handleAvailabilityResponse (Story 4.3)', () => {
       expect.stringContaining('I understood using basic parsing'),
       expect.any(Object)
     );
+  });
+});
+
+describe('BotHandlers.handleSettings (Story 7.2)', () => {
+  let reposMock: Repositories;
+  let handlers: BotHandlers;
+  let ctxMock: any;
+
+  beforeEach(() => {
+    reposMock = {
+      groups: {
+        findByTelegramId: mock(() => Promise.resolve({ id: 'group-1', name: 'Test Group' })),
+        getAllSettings: mock(() => Promise.resolve({
+          consensusThreshold: 75,
+          nudgeIntervalHours: 24,
+          maxNudgeCount: 3
+        })),
+        updateSettings: mock(() => Promise.resolve({}))
+      } as any,
+      members: {
+        isOptedIn: mock(() => Promise.resolve(true))
+      } as any,
+      rounds: {} as any,
+      responses: {} as any,
+      consensus: {} as any,
+      nluQueue: {} as any,
+      nudges: {} as any,
+      reminders: {} as any,
+    };
+    handlers = new BotHandlers(reposMock);
+    ctxMock = {
+      chat: { id: 123, type: 'group' },
+      from: { id: 456, first_name: 'TestUser', username: 'testuser' },
+      message: { text: '/settings' },
+      reply: mock(() => Promise.resolve({})),
+    };
+  });
+
+  test('should fail if not in group chat', async () => {
+    ctxMock.chat.type = 'private';
+    await handlers.handleSettings(ctxMock);
+    expect(ctxMock.reply).toHaveBeenCalledWith('This command only works in group chats.');
+  });
+
+  test('should fail if user is not opted-in', async () => {
+    reposMock.members.isOptedIn = mock(() => Promise.resolve(false));
+    await handlers.handleSettings(ctxMock);
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('you must opt-in first'));
+  });
+
+  test('should display current settings when no arguments provided', async () => {
+    await handlers.handleSettings(ctxMock);
+
+    expect(reposMock.groups.getAllSettings).toHaveBeenCalledWith('group-1');
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Group Settings'),
+      expect.objectContaining({ parse_mode: 'Markdown' })
+    );
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Consensus Threshold: 75%'),
+      expect.any(Object)
+    );
+  });
+
+  test('should update consensus threshold with valid value', async () => {
+    ctxMock.message.text = '/settings threshold 60';
+    await handlers.handleSettings(ctxMock);
+
+    expect(reposMock.groups.updateSettings).toHaveBeenCalledWith('group-1', { consensusThreshold: 60 });
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Setting Updated'),
+      expect.any(Object)
+    );
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Consensus threshold changed to 60%'),
+      expect.any(Object)
+    );
+  });
+
+  test('should fail if threshold is out of range', async () => {
+    ctxMock.message.text = '/settings threshold 40';
+    await handlers.handleSettings(ctxMock);
+
+    expect(reposMock.groups.updateSettings).not.toHaveBeenCalled();
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('Invalid threshold'));
+  });
+
+  test('should update nudge interval with valid value', async () => {
+    ctxMock.message.text = '/settings interval 12';
+    await handlers.handleSettings(ctxMock);
+
+    expect(reposMock.groups.updateSettings).toHaveBeenCalledWith('group-1', { nudgeIntervalHours: 12 });
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Nudge interval changed to 12 hours'),
+      expect.any(Object)
+    );
+  });
+
+  test('should update max nudges with valid value', async () => {
+    ctxMock.message.text = '/settings max_nudges 5';
+    await handlers.handleSettings(ctxMock);
+
+    expect(reposMock.groups.updateSettings).toHaveBeenCalledWith('group-1', { maxNudgeCount: 5 });
+    expect(ctxMock.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Maximum nudges changed to 5'),
+      expect.any(Object)
+    );
+  });
+
+  test('should fail with invalid numeric value', async () => {
+    ctxMock.message.text = '/settings threshold abc';
+    await handlers.handleSettings(ctxMock);
+
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('Invalid value. Please provide a number.'));
+  });
+
+  test('should fail with unknown setting name', async () => {
+    ctxMock.message.text = '/settings speed 100';
+    await handlers.handleSettings(ctxMock);
+
+    expect(ctxMock.reply).toHaveBeenCalledWith(expect.stringContaining('Unknown setting: speed'));
   });
 });
