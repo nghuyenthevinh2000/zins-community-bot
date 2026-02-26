@@ -1,8 +1,18 @@
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, mock, afterEach } from "bun:test";
 import { PrismaClient } from '@prisma/client';
 import { GroupRepository } from '../db/group-repository';
 import { MemberRepository } from '../db/member-repository';
 import { BotHandlers } from './bot-handlers.service';
+
+// Mock the entire OpenCodeNLUService class
+mock.module('./opencode-nlu.service', () => {
+  return {
+    OpenCodeNLUService: class {
+      parseAvailability = mock(() => Promise.resolve({ success: true, parsed: [], isVague: false }));
+      close = mock(() => Promise.resolve());
+    }
+  };
+});
 
 const prisma = new PrismaClient();
 
