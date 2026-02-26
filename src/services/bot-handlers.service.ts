@@ -482,6 +482,8 @@ You will now receive DMs when a new scheduling round starts.`);
     }
 
     // Validate and update settings based on the setting name
+    const userIdentifier = user.username ? `@${user.username}` : `User ${user.id}`;
+    
     switch (settingName) {
       case 'threshold':
         if (settingValue < 50 || settingValue > 100) {
@@ -493,10 +495,23 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { consensusThreshold: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**\n\n` +
-          `Consensus threshold changed to ${settingValue}%.\n\n` +
+          `✅ **Setting Updated**
+
+` +
+          `Consensus threshold changed to ${settingValue}%.
+
+` +
           `Now at least ${settingValue}% of members must agree on a time ` +
           `for a meeting to be confirmed.`
+        );
+        
+        // Broadcast change to group
+        await this.broadcastSettingChange(
+          group.telegramId,
+          userIdentifier,
+          'Consensus Threshold',
+          `${settingValue}%`,
+          'The percentage of members needed to confirm a meeting'
         );
         break;
 
@@ -510,10 +525,23 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { nudgeIntervalHours: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**\n\n` +
-          `Nudge interval changed to ${settingValue} hours.\n\n` +
+          `✅ **Setting Updated**
+
+` +
+          `Nudge interval changed to ${settingValue} hours.
+
+` +
           `Members will now be reminded every ${settingValue} hours ` +
           `if they haven't responded.`
+        );
+        
+        // Broadcast change to group
+        await this.broadcastSettingChange(
+          group.telegramId,
+          userIdentifier,
+          'Nudge Interval',
+          `${settingValue} hours`,
+          'Time between reminder messages'
         );
         break;
 
@@ -527,20 +555,74 @@ You will now receive DMs when a new scheduling round starts.`);
 
         await this.repos.groups.updateSettings(group.id, { maxNudgeCount: settingValue });
         await ctx.reply(
-          `✅ **Setting Updated**\n\n` +
-          `Maximum nudges changed to ${settingValue}.\n\n` +
+          `✅ **Setting Updated**
+
+` +
+          `Maximum nudges changed to ${settingValue}.
+
+` +
           `The bot will send up to ${settingValue} reminders to non-responders.`
+        );
+        
+        // Broadcast change to group
+        await this.broadcastSettingChange(
+          group.telegramId,
+          userIdentifier,
+          'Max Nudges',
+          `${settingValue}`,
+          'Maximum number of reminders per member'
         );
         break;
 
       default:
         await ctx.reply(
-          `❌ Unknown setting: ${settingName}\n\n` +
-          `**Available settings:**\n` +
-          `• threshold - Consensus percentage (50-100%)\n` +
-          `• interval - Hours between nudges (1-168)\n` +
+          `❌ Unknown setting: ${settingName}
+
+` +
+          `**Available settings:**
+` +
+          `• threshold - Consensus percentage (50-100%)
+` +
+          `• interval - Hours between nudges (1-168)
+` +
           `• max_nudges - Maximum nudges (1-10)`
         );
+    }
+  }
+
+  /**
+   * Broadcast setting change to group chat
+   * Identifies the user who made the change
+   */
+  private async broadcastSettingChange(
+    groupTelegramId: string,
+    userIdentifier: string,
+    settingName: string,
+    newValue: string,
+    description: string
+  ): Promise<void> {
+    if (!this.bot) return;
+
+    const broadcastMessage = 
+      `🔧 **Group Setting Changed**
+
+` +
+      `Changed by: ${userIdentifier}
+
+` +
+      `**Setting:** ${settingName}
+` +
+      `**New Value:** ${newValue}
+` +
+      `**Description:** ${description}`;
+
+    try {
+      await this.bot.telegram.sendMessage(groupTelegramId, broadcastMessage, {
+        parse_mode: 'Markdown'
+      });
+      console.log(`[Settings] Broadcast setting change to group ${groupTelegramId}: ${settingName} = ${newValue}`);
+    } catch (error) {
+      console.error(`[Settings] Failed to broadcast setting change to group ${groupTelegramId}:`, error);
     }
   }
 

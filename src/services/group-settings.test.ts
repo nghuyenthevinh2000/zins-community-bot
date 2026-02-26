@@ -28,10 +28,27 @@ function createMockContext(overrides: any = {}) {
   };
 }
 
+// Mock bot for testing broadcasts
+function createMockBot() {
+  const sentMessages: Array<{ chatId: string | number; message: string }> = [];
+  
+  return {
+    telegram: {
+      sendMessage: async (chatId: string | number, message: string, options?: any) => {
+        sentMessages.push({ chatId, message });
+        console.log(`[MockBot] Broadcasting to ${chatId}: ${message.substring(0, 80)}...`);
+        return { message_id: Math.floor(Math.random() * 1000) };
+      }
+    },
+    getSentMessages: () => sentMessages,
+    clearMessages: () => { sentMessages.length = 0; }
+  };
+}
+
 describe('Group Settings (Story 7.2)', () => {
   let groupRepo: GroupRepository;
   let memberRepo: MemberRepository;
-  let handlers: BotHandlers;
+  let mockBot: ReturnType<typeof createMockBot>;
 
   beforeEach(async () => {
     await prisma.availabilityResponse.deleteMany();
@@ -45,9 +62,15 @@ describe('Group Settings (Story 7.2)', () => {
 
     groupRepo = new GroupRepository();
     memberRepo = new MemberRepository();
+    mockBot = createMockBot();
+  });
 
-    // Create handlers with mock bot
-    handlers = new BotHandlers({
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  function createHandlers(): BotHandlers {
+    return new BotHandlers({
       groups: groupRepo,
       members: memberRepo,
       rounds: {} as any,
@@ -55,17 +78,96 @@ describe('Group Settings (Story 7.2)', () => {
       nluQueue: {} as any,
       nudges: {} as any,
       consensus: {} as any
-    }, undefined, null);
+    }, undefined, mockBot as any);
+  }
+
+  test('should broadcast setting change to group chat', async () => {
+    const group = await groupRepo.findOrCreate('-123456789', 'Broadcast Test Group');
+    await memberRepo.optIn('987654321', group.id);
+
+    const handlers = createHandlers();
+    const ctx = createMockContext({
+      message: { text: '/settings threshold 60' }
+    });
+    
+    mockBot.clearMessages();
+    
+    await handlers.handleSettings(ctx as any);
+
+    // Check that broadcast was sent
+    const sentMessages = mockBot.getSentMessages();
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].chatId).toBe('-123456789');
+    expect(sentMessages[0].message).toContain('Group Setting Changed');
+    expect(sentMessages[0].message).toContain('@testuser');
+    expect(sentMessages[0].message).toContain('Consensus Threshold');
+    expect(sentMessages[0].message).toContain('60%');
   });
 
-  afterEach(async () => {
-    await prisma.$disconnect();
+  test('should broadcast interval change with user identifier', async () => {
+    const group = await groupRepo.findOrCreate('-123456789', 'Interval Broadcast Group');
+    await memberRepo.optIn('987654321', group.id);
+
+    const handlers = createHandlers();
+    const ctx = createMockContext({
+      message: { text: '/settings interval 12' }
+    });
+    
+    mockBot.clearMessages();
+    
+    await handlers.handleSettings(ctx as any);
+
+    const sentMessages = mockBot.getSentMessages();
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].message).toContain('@testuser');
+    expect(sentMessages[0].message).toContain('Nudge Interval');
+    expect(sentMessages[0].message).toContain('12 hours');
+  });
+
+  test('should broadcast max_nudges change', async () => {
+    const group = await groupRepo.findOrCreate('-123456789', 'MaxNudges Broadcast Group');
+    await memberRepo.optIn('987654321', group.id);
+
+    const handlers = createHandlers();
+    const ctx = createMockContext({
+      message: { text: '/settings max_nudges 5' }
+    });
+    
+    mockBot.clearMessages();
+    
+    await handlers.handleSettings(ctx as any);
+
+    const sentMessages = mockBot.getSentMessages();
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].message).toContain('@testuser');
+    expect(sentMessages[0].message).toContain('Max Nudges');
+    expect(sentMessages[0].message).toContain('5');
+  });
+
+  test('should not broadcast if user has no username', async () => {
+    const group = await groupRepo.findOrCreate('-123456789', 'No Username Group');
+    await memberRepo.optIn('987654321', group.id);
+
+    const handlers = createHandlers();
+    const ctx = createMockContext({
+      from: { id: 987654321 }, // No username
+      message: { text: '/settings threshold 60' }
+    });
+    
+    mockBot.clearMessages();
+    
+    await handlers.handleSettings(ctx as any);
+
+    const sentMessages = mockBot.getSentMessages();
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].message).toContain('User 987654321');
   });
 
   test('should display all group settings', async () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Settings Test Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext();
     let replyMessage = '';
     ctx.reply = async (message: string) => {
@@ -85,6 +187,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Threshold Test Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings threshold 60' }
     });
@@ -106,6 +209,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Interval Test Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings interval 12' }
     });
@@ -127,6 +231,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'MaxNudges Test Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings max_nudges 5' }
     });
@@ -148,6 +253,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Invalid Threshold Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings threshold 30' }
     });
@@ -171,6 +277,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Invalid Interval Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings interval 200' }
     });
@@ -193,6 +300,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Non Opted-in Group');
     // Don't opt in the user
 
+    const handlers = createHandlers();
     const ctx = createMockContext();
     let replyMessage = '';
     ctx.reply = async (message: string) => {
@@ -209,6 +317,7 @@ describe('Group Settings (Story 7.2)', () => {
     const group = await groupRepo.findOrCreate('-123456789', 'Unknown Setting Group');
     await memberRepo.optIn('987654321', group.id);
 
+    const handlers = createHandlers();
     const ctx = createMockContext({
       message: { text: '/settings unknown_setting 50' }
     });
