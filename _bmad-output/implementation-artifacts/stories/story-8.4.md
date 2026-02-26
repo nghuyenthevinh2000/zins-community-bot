@@ -1,6 +1,6 @@
 # Story 8.4: Consolidate Orphaned Tests & Delete Dead Files
 
-Status: ready-for-dev
+Status: done
 
 ## Prerequisite
 
