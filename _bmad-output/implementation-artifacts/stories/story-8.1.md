@@ -1,6 +1,6 @@
 # Story 8.1: Module Scaffold — Create Folder Structure & Move DB Files
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -180,10 +180,47 @@ export { ReminderRepository } from '../modules/reminder/db/reminder-repository';
 
 ### Agent Model Used
 
-_to be filled by dev agent_
+claude-sonnet-4.6
 
 ### Debug Log References
 
+None — clean execution, no issues encountered.
+
 ### Completion Notes List
 
+- All 9 repository files moved verbatim to their module `db/` subfolders with zero logic changes.
+- `src/db/client.ts` copied to `src/core/db/client.ts`.
+- All `import { getPrismaClient } from './client'` updated to `'../../../core/db/client'` in moved repository files.
+- Cross-domain test file imports fixed (scheduling/nlu/nudge tests that imported from group/scheduling modules).
+- Per-module `index.ts` files created for all 6 modules.
+- `src/db/index.ts` updated to proxy all re-exports from new module paths.
+- `bun test`: 133 pass, 0 fail across 20 files.
+- `bun run dev`: starts without TypeScript errors.
+
 ### File List
+
+**New files created:**
+- `src/core/db/client.ts`
+- `src/modules/group/index.ts`
+- `src/modules/group/db/group-repository.ts`
+- `src/modules/group/db/group-repository.test.ts`
+- `src/modules/group/db/member-repository.ts`
+- `src/modules/group/db/member-repository.test.ts`
+- `src/modules/scheduling/index.ts`
+- `src/modules/scheduling/db/round-repository.ts`
+- `src/modules/scheduling/db/round-repository.test.ts`
+- `src/modules/scheduling/db/response-repository.ts`
+- `src/modules/scheduling/db/response-repository.test.ts`
+- `src/modules/consensus/index.ts`
+- `src/modules/consensus/db/consensus-repository.ts`
+- `src/modules/nlu/index.ts`
+- `src/modules/nlu/db/nlu-queue-repository.ts`
+- `src/modules/nlu/db/nlu-queue-repository.test.ts`
+- `src/modules/nudge/index.ts`
+- `src/modules/nudge/db/nudge-repository.ts`
+- `src/modules/nudge/db/nudge-repository.test.ts`
+- `src/modules/reminder/index.ts`
+- `src/modules/reminder/db/reminder-repository.ts`
+
+**Modified files:**
+- `src/db/index.ts` — updated to proxy re-exports from new module paths
