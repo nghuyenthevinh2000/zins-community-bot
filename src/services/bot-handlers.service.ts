@@ -403,20 +403,145 @@ You will now receive DMs when a new scheduling round starts.`);
       return;
     }
 
+    const user = ctx.from;
+    if (!user) {
+      await ctx.reply('Unable to identify user.');
+      return;
+    }
+
     const group = await this.repos.groups.findByTelegramId(chat.id.toString());
     if (!group) {
       await ctx.reply('This group is not registered. Use /start to register it.');
       return;
     }
 
-    const settings = await this.repos.groups.getNudgeSettings(group.id);
+    // Check if user is opted-in
+    const isOptedIn = await this.repos.members.isOptedIn(user.id.toString(), group.id);
+    if (!isOptedIn) {
+      await ctx.reply(
+        `❌ @${user.username || user.first_name}, you must opt-in first to change group settings.\n` +
+        `Use the opt-in button or message me directly.`
+      );
+      return;
+    }
 
-    await ctx.reply(
-      `⚙️ **Group Settings**\n\n` +
-      `**Nudge Interval:** ${settings.nudgeIntervalHours} hours\n` +
-      `**Max Nudges:** ${settings.maxNudgeCount}\n\n` +
-      `To change settings, contact an admin.`
-    );
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    const args = messageText.split(' ').slice(1); // Remove command
+
+    // Get current settings
+    const settings = await this.repos.groups.getAllSettings(group.id);
+
+    // If no arguments, show current settings with instructions
+    if (args.length === 0) {
+      await ctx.reply(
+        `⚙️ **Group Settings** (Story 7.2)\n\n` +
+        `**Current Settings:**\n` +
+        `• Consensus Threshold: ${settings.consensusThreshold}%\n` +
+        `  (Percentage of members needed to confirm a meeting)\n\n` +
+        `• Nudge Interval: ${settings.nudgeIntervalHours} hours\n` +
+        `  (Time between reminder messages)\n\n` +
+        `• Max Nudges: ${settings.maxNudgeCount}\n` +
+        `  (Maximum reminder messages per member)\n\n` +
+        `**To modify settings:**\n` +
+        `/settings threshold <50-100>\n` +
+        `/settings interval <1-168>\n` +
+        `/settings max_nudges <1-10>\n\n` +
+        `**Examples:**\n` +
+        `/settings threshold 60\n` +
+        `/settings interval 12\n` +
+        `/settings max_nudges 5`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Parse settings command
+    if (args.length < 2) {
+      await ctx.reply(
+        `❌ Please provide a value.\n\n` +
+        `**Usage:**\n` +
+        `/settings threshold <50-100>\n` +
+        `/settings interval <1-168>\n` +
+        `/settings max_nudges <1-10>`
+      );
+      return;
+    }
+
+    const settingName = args[0].toLowerCase();
+    const settingValue = parseInt(args[1], 10);
+
+    if (isNaN(settingValue)) {
+      await ctx.reply(
+        `❌ Invalid value. Please provide a number.\n\n` +
+        `**Usage:**\n` +
+        `/settings threshold <50-100>\n` +
+        `/settings interval <1-168>\n` +
+        `/settings max_nudges <1-10>`
+      );
+      return;
+    }
+
+    // Validate and update settings based on the setting name
+    switch (settingName) {
+      case 'threshold':
+        if (settingValue < 50 || settingValue > 100) {
+          await ctx.reply(
+            `❌ Invalid threshold. Must be between 50 and 100 percent.`
+          );
+          return;
+        }
+
+        await this.repos.groups.updateSettings(group.id, { consensusThreshold: settingValue });
+        await ctx.reply(
+          `✅ **Setting Updated**\n\n` +
+          `Consensus threshold changed to ${settingValue}%.\n\n` +
+          `Now at least ${settingValue}% of members must agree on a time ` +
+          `for a meeting to be confirmed.`
+        );
+        break;
+
+      case 'interval':
+        if (settingValue < 1 || settingValue > 168) {
+          await ctx.reply(
+            `❌ Invalid interval. Must be between 1 and 168 hours (1 week).`
+          );
+          return;
+        }
+
+        await this.repos.groups.updateSettings(group.id, { nudgeIntervalHours: settingValue });
+        await ctx.reply(
+          `✅ **Setting Updated**\n\n` +
+          `Nudge interval changed to ${settingValue} hours.\n\n` +
+          `Members will now be reminded every ${settingValue} hours ` +
+          `if they haven't responded.`
+        );
+        break;
+
+      case 'max_nudges':
+        if (settingValue < 1 || settingValue > 10) {
+          await ctx.reply(
+            `❌ Invalid count. Must be between 1 and 10.`
+          );
+          return;
+        }
+
+        await this.repos.groups.updateSettings(group.id, { maxNudgeCount: settingValue });
+        await ctx.reply(
+          `✅ **Setting Updated**\n\n` +
+          `Maximum nudges changed to ${settingValue}.\n\n` +
+          `The bot will send up to ${settingValue} reminders to non-responders.`
+        );
+        break;
+
+      default:
+        await ctx.reply(
+          `❌ Unknown setting: ${settingName}\n\n` +
+          `**Available settings:**\n` +
+          `• threshold - Consensus percentage (50-100%)\n` +
+          `• interval - Hours between nudges (1-168)\n` +
+          `• max_nudges - Maximum nudges (1-10)`
+        );
+    }
   }
 
   async handleHelp(ctx: Context): Promise<void> {
