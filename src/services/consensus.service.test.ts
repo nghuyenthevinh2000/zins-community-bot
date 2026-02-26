@@ -19,7 +19,8 @@ const consensusService = new ConsensusService({
   rounds: roundRepo,
   responses: responseRepo,
   members: memberRepo,
-  consensus: consensusRepo
+  consensus: consensusRepo,
+  groups: groupRepo
 });
 
 describe('ConsensusService (Story 6.1 & 6.2)', () => {

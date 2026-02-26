@@ -1,4 +1,4 @@
-import { RoundRepository, ResponseRepository, MemberRepository, ConsensusRepository } from '../db';
+import { RoundRepository, ResponseRepository, MemberRepository, ConsensusRepository, GroupRepository } from '../db';
 import { type TimeSlot } from '../db';
 
 export interface ConsensusResult {
@@ -14,6 +14,7 @@ export class ConsensusService {
     responses: ResponseRepository;
     members: MemberRepository;
     consensus: ConsensusRepository;
+    groups: GroupRepository;
   }) { }
 
   /**
@@ -103,9 +104,12 @@ export class ConsensusService {
    * Get consensus threshold for a group (default 75%)
    */
   async getConsensusThreshold(groupId: string): Promise<number> {
-    // Placeholder as groups repo is not injected here directly, assuming 75% for now or fetching another way if needed
-    // In a real implementation we'd probably add groupRepo
-    return 75;
+    try {
+      return await this.repos.groups.getConsensusThreshold(groupId);
+    } catch (error) {
+      console.error(`[ConsensusService] Error fetching threshold for group ${groupId}:`, error);
+      return 75; // Default fallback
+    }
   }
   /**
    * Calculate time slots from availability responses
