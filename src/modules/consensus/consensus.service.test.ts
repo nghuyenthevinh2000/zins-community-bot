@@ -2,11 +2,11 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { PrismaClient } from '@prisma/client';
 import { ConsensusService } from './consensus.service';
-import { RoundRepository } from '../../db/round-repository';
-import { MemberRepository } from '../../db/member-repository';
-import { ResponseRepository } from '../../db/response-repository';
-import { GroupRepository } from '../../db/group-repository';
-import { ConsensusRepository } from '../../db/consensus-repository';
+import { RoundRepository } from '../scheduling/db/round-repository';
+import { MemberRepository } from '../group/db/member-repository';
+import { ResponseRepository } from '../scheduling/db/response-repository';
+import { GroupRepository } from '../group/db/group-repository';
+import { ConsensusRepository } from './db/consensus-repository';
 
 const prisma = new PrismaClient();
 const roundRepo = new RoundRepository();
